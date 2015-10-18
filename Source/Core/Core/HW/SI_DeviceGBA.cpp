@@ -4149,7 +4149,7 @@ void CSIDevice_GBA::DoState(PointerWrap& p)
 	p.Do(actionDataMode);
 
 	//Connection Variables
-	//p.Do(waiting_for_response);
+	p.Do(waiting_for_response);
 	//p.Do(send_data);
 	//p.Do(num_data_received);
 	//p.Do(timestamp_sent);	
