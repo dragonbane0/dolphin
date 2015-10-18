@@ -316,6 +316,40 @@ u8* GetPointer(u32 address)
 	return nullptr;
 }
 
+//Dragonbane
+std::string Read_String(const u32 startAddress, int count)
+{
+	std::string output = "";
+
+	for (int i = 0; i < count; i++)
+	{
+		u32 address = startAddress + i;
+		std::string result;
+
+		u8 var = *GetPointer(address);
+
+		result = var;
+
+		output.append(result);
+	}
+	return output;
+}
+
+void Write_String(const std::string text, const u32 startAddress)
+{
+	size_t count = text.length();
+
+	for (int i = 0; i < count; i++)
+	{
+		u32 address = startAddress + i;
+		const char letter = text.at(i);
+
+		u8 var = letter;
+
+		*GetPointer(address) = var;
+	}
+}
+
 u8 Read_U8(u32 address)
 {
 	return *GetPointer(address);
@@ -334,6 +368,30 @@ u32 Read_U32(u32 address)
 u64 Read_U64(u32 address)
 {
 	return Common::swap64(GetPointer(address));
+}
+
+float Read_F32(const u32 address)
+{
+	union
+	{
+		u32 i;
+		float d;
+	} cvt;
+
+	cvt.i = Read_U32(address);
+	return cvt.d;
+}
+
+double Read_F64(const u32 address)
+{
+	union
+	{
+		u64 i;
+		double d;
+	} cvt;
+
+	cvt.i = Read_U64(address);
+	return cvt.d;
 }
 
 void Write_U8(u8 value, u32 address)
@@ -367,6 +425,29 @@ void Write_U32_Swap(u32 value, u32 address)
 void Write_U64_Swap(u64 value, u32 address)
 {
 	std::memcpy(GetPointer(address), &value, sizeof(u64));
+}
+
+void Write_F32(const float var, const u32 address)
+{
+	union
+	{
+		u32 i;
+		float d;
+	} cvt;
+	cvt.d = var;
+
+	Write_U32(cvt.i, address);
+}
+void Write_F64(const double var, const u32 address)
+{
+	union
+	{
+		u64 i;
+		double d;
+	} cvt;
+	cvt.d = var;
+
+	Write_U64(cvt.i, address);
 }
 
 }  // namespace

@@ -164,12 +164,74 @@ namespace AudioCommon
 
 	void StartAudioDump()
 	{
-		std::string audio_file_name_dtk = File::GetUserPath(D_DUMPAUDIO_IDX) + "dtkdump.wav";
-		std::string audio_file_name_dsp = File::GetUserPath(D_DUMPAUDIO_IDX) + "dspdump.wav";
-		File::CreateFullPath(audio_file_name_dtk);
-		File::CreateFullPath(audio_file_name_dsp);
-		g_sound_stream->GetMixer()->StartLogDTKAudio(audio_file_name_dtk);
-		g_sound_stream->GetMixer()->StartLogDSPAudio(audio_file_name_dsp);
+		//Dragonbane: Get last chosen Path
+		IniFile settingsIni;
+		IniFile::Section* iniPathSection;
+		std::string lastRecordingPath = "";
+		bool fileLoaded = false;
+
+		fileLoaded = settingsIni.Load(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+
+		//Get Path
+		if (fileLoaded)
+		{
+			iniPathSection = settingsIni.GetOrCreateSection("RememberedPaths");
+			iniPathSection->Get("LastDumpPath", &lastRecordingPath, "");
+		}
+
+		std::string dumpFolder;
+
+		if (lastRecordingPath.empty())
+			dumpFolder = File::GetUserPath(D_DUMPAUDIO_IDX);
+		else
+			dumpFolder = lastRecordingPath;
+
+		std::string audio_file_name_dtk;
+		std::string audio_file_name_dsp;
+
+		//Movie Logic
+		if (Movie::cmp_isRunning)
+		{
+			std::string fileName = "";
+
+			if (Movie::cmp_currentMovie == Movie::cmp_leftMovie)
+				fileName = "_left";
+			else
+				fileName = "_right";
+
+			if (Movie::cmp_outputPath.empty())  //Default Save Path
+			{
+				audio_file_name_dsp = dumpFolder + "Comparison" + fileName + ".wav";
+			}
+			else
+			{
+				std::string file, legalPathname, extension;
+				SplitPathEscapeChar(Movie::cmp_outputPath, &legalPathname, &file, &extension);
+
+				if (extension.empty() || extension.compare(".avi"))
+				{
+					audio_file_name_dsp = legalPathname + "Comparison" + fileName + ".wav";
+				}
+				else
+				{
+					audio_file_name_dsp = legalPathname + file + fileName + ".wav";
+				}
+			}
+
+			File::CreateFullPath(audio_file_name_dsp);
+			g_sound_stream->GetMixer()->StartLogDSPAudio(audio_file_name_dsp);
+		}
+		else
+		{
+			audio_file_name_dtk = dumpFolder + "dtkdump.wav";
+			audio_file_name_dsp = dumpFolder + "dspdump.wav";
+
+			File::CreateFullPath(audio_file_name_dtk);
+			File::CreateFullPath(audio_file_name_dsp);
+			g_sound_stream->GetMixer()->StartLogDTKAudio(audio_file_name_dtk);
+			g_sound_stream->GetMixer()->StartLogDSPAudio(audio_file_name_dsp);
+		}
+
 		s_audio_dump_start = true;
 	}
 

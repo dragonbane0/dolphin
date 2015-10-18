@@ -91,9 +91,11 @@ enum
 
 	// Movie menu
 	IDM_RECORD,
+	IDM_RECORD_STOP, //Dragonbane
 	IDM_PLAY_RECORD,
 	IDM_RECORD_EXPORT,
 	IDM_RECORD_READ_ONLY,
+	IDM_VERIFY_RECORD, //Dragonbane
 	IDM_TAS_INPUT,
 	IDM_TOGGLE_PAUSE_MOVIE,
 	IDM_SHOW_LAG,
@@ -103,6 +105,7 @@ enum
 	IDM_SCREENSHOT,
 	IDM_TOGGLE_DUMP_FRAMES,
 	IDM_TOGGLE_DUMP_AUDIO,
+	IDM_DUMP_PATH, //Dragonbane
 
 	// File menu
 	IDM_BROWSE,
@@ -112,6 +115,11 @@ enum
 
 	// Tools menu
 	IDM_MEMCARD,
+	IDM_TPSAVE, //Dragonbane
+	IDM_TPLOAD, //Dragonbane
+	IDM_TPCOMPARE, //Dragonbane
+	IDM_SUPERSWIM, //Dragonbane
+	IDM_TUNERINPUT, //Dragonbane
 	IDM_CHEATS,
 	IDM_NETPLAY,
 	IDM_RESTART,

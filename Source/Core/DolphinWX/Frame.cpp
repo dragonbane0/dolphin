@@ -58,6 +58,11 @@
 #include "VideoCommon/VertexShaderManager.h"
 #include "VideoCommon/VideoConfig.h"
 
+//Dragonbane
+#include "DolphinWX/TPSavefileManager.h"
+#include "DolphinWX/TPLoadManager.h"
+#include "DolphinWX/TPVideoComparison.h"
+
 // Resources
 
 extern "C" {
@@ -244,9 +249,14 @@ EVT_MENU(IDM_PLAY, CFrame::OnPlay)
 EVT_MENU(IDM_STOP, CFrame::OnStop)
 EVT_MENU(IDM_RESET, CFrame::OnReset)
 EVT_MENU(IDM_RECORD, CFrame::OnRecord)
+EVT_MENU(IDM_RECORD_STOP, CFrame::OnStopRecord) //Dragonbane
 EVT_MENU(IDM_PLAY_RECORD, CFrame::OnPlayRecording)
 EVT_MENU(IDM_RECORD_EXPORT, CFrame::OnRecordExport)
 EVT_MENU(IDM_RECORD_READ_ONLY, CFrame::OnRecordReadOnly)
+
+//Dragonbane
+EVT_MENU(IDM_VERIFY_RECORD, CFrame::OnRecordVerify)
+
 EVT_MENU(IDM_TAS_INPUT, CFrame::OnTASInput)
 EVT_MENU(IDM_TOGGLE_PAUSE_MOVIE, CFrame::OnTogglePauseMovie)
 EVT_MENU(IDM_SHOW_LAG, CFrame::OnShowLag)
@@ -280,6 +290,11 @@ EVT_MENU_RANGE(IDM_FLOAT_LOG_WINDOW, IDM_FLOAT_CODE_WINDOW, CFrame::OnFloatWindo
 EVT_MENU(IDM_NETPLAY, CFrame::OnNetPlay)
 EVT_MENU(IDM_BROWSE, CFrame::OnBrowse)
 EVT_MENU(IDM_MEMCARD, CFrame::OnMemcard)
+EVT_MENU(IDM_TPSAVE, CFrame::OnTPSave) //Dragonbane
+EVT_MENU(IDM_TPLOAD, CFrame::OnTPLoad) //Dragonbane
+EVT_MENU(IDM_TPCOMPARE, CFrame::OnTPVideoComparison) //Dragonbane
+EVT_MENU(IDM_SUPERSWIM, CFrame::OnTWWSuperSwim) //Dragonbane
+EVT_MENU(IDM_TUNERINPUT, CFrame::OnTWWTunerInput) //Dragonbane
 EVT_MENU(IDM_IMPORT_SAVE, CFrame::OnImportSave)
 EVT_MENU(IDM_EXPORT_ALL_SAVE, CFrame::OnExportAllSaves)
 EVT_MENU(IDM_CHEATS, CFrame::OnShowCheatsWindow)
@@ -445,6 +460,15 @@ CFrame::CFrame(wxFrame* parent,
 	m_LogWindow = new CLogWindow(this, IDM_LOG_WINDOW);
 	m_LogWindow->Hide();
 	m_LogWindow->Disable();
+
+
+	//Dragonbane
+	g_TPSaveFileManager = new TPSavefileManager(this);
+	g_TPLoadManager = new TPLoadManager(this);
+	g_TPVideoComparison = new TPVideoComparison(this);
+	g_TWWSuperswim = new TWWSuperswim(this);
+	g_TWWTunerInput = new TWWTunerInput(this);
+
 
 	for (int i = 0; i < 8; ++i)
 		g_TASInputDlg[i] = new TASInputDlg(this);
@@ -1458,7 +1482,11 @@ void CFrame::ParseHotkeys()
 		g_Config.oStereoPresets[g_Config.iStereoActivePreset].convergence = g_Config.iStereoConvergence;
 		savePreset("Convergence", g_Config.iStereoConvergence);
 	}
-
+	if (IsHotkey(HK_AUTO_VERIFY)) //Dragonbane
+	{
+		if (Movie::AutoVerify() && !Core::IsRunningAndStarted())
+			BootGame("");
+	}
 	if (IsHotkey(HK_SWITCH_STEREOSCOPY_PRESET))
 	{
 		g_Config.iStereoActivePreset = !g_Config.iStereoActivePreset;

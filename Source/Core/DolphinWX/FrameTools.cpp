@@ -10,6 +10,7 @@
 #include <wx/app.h>
 #include <wx/bitmap.h>
 #include <wx/filedlg.h>
+#include <wx/dirdlg.h>
 #include <wx/filefn.h>
 #include <wx/menu.h>
 #include <wx/msgdlg.h>
@@ -54,6 +55,9 @@
 #include "DiscIO/NANDContentLoader.h"
 
 #include "DolphinWX/AboutDolphin.h"
+#include "DolphinWX/TPSavefileManager.h" //Dragonbane
+#include "DolphinWX/TPLoadManager.h" //Dragonbane
+#include "DolphinWX/TPVideoComparison.h" //Dragonbane
 #include "DolphinWX/ControllerConfigDiag.h"
 #include "DolphinWX/FifoPlayerDlg.h"
 #include "DolphinWX/Frame.h"
@@ -200,9 +204,17 @@ wxMenuBar* CFrame::CreateMenu()
 	// Movie menu
 	wxMenu* movieMenu = new wxMenu;
 	movieMenu->Append(IDM_RECORD, GetMenuLabel(HK_START_RECORDING));
-	movieMenu->Append(IDM_PLAY_RECORD, GetMenuLabel(HK_PLAY_RECORDING));
+
+	movieMenu->Append(IDM_RECORD_STOP, "Stop Recording/Playing Input"); //Dragonbane
+
 	movieMenu->Append(IDM_RECORD_EXPORT, GetMenuLabel(HK_EXPORT_RECORDING));
+	movieMenu->Append(IDM_PLAY_RECORD, GetMenuLabel(HK_PLAY_RECORDING));
+
+	//Dragonbane
+	movieMenu->Append(IDM_VERIFY_RECORD, "Verify Input Recording...");
+
 	movieMenu->Append(IDM_RECORD_READ_ONLY, GetMenuLabel(HK_READ_ONLY_MODE), wxEmptyString, wxITEM_CHECK);
+
 	movieMenu->Append(IDM_TAS_INPUT, _("TAS Input"));
 	movieMenu->AppendSeparator();
 	movieMenu->AppendCheckItem(IDM_TOGGLE_PAUSE_MOVIE, _("Pause at End of Movie"));
@@ -219,6 +231,7 @@ wxMenuBar* CFrame::CreateMenu()
 	movieMenu->Check(IDM_TOGGLE_DUMP_FRAMES, SConfig::GetInstance().m_DumpFrames);
 	movieMenu->AppendCheckItem(IDM_TOGGLE_DUMP_AUDIO, _("Dump Audio"));
 	movieMenu->Check(IDM_TOGGLE_DUMP_AUDIO, SConfig::GetInstance().m_DumpAudio);
+	movieMenu->Append(IDM_DUMP_PATH, "Set Recording Path"); //Dragonbane
 	menubar->Append(movieMenu, _("&Movie"));
 
 	// Options menu
@@ -261,6 +274,23 @@ wxMenuBar* CFrame::CreateMenu()
 	wiimoteMenu->AppendCheckItem(IDM_CONNECT_BALANCEBOARD, GetMenuLabel(HK_BALANCEBOARD_CONNECT));
 
 	menubar->Append(toolsMenu, _("&Tools"));
+
+	//Dragonbane
+	wxMenu* tpMenu = new wxMenu;
+	tpMenu->Append(IDM_TPSAVE, "Savefile Manager");
+	tpMenu->Append(IDM_TPLOAD, "Load Area");
+
+	wxMenu* twwMenu = new wxMenu;
+	twwMenu->Append(IDM_SUPERSWIM, "Superswim Script");
+	twwMenu->Append(IDM_TUNERINPUT, "Tuner Input");
+
+	wxMenu* zeldaMenu = new wxMenu;
+	zeldaMenu->Append(IDM_TPCOMPARE, "Create Video Comparison");
+	zeldaMenu->AppendSeparator();
+	zeldaMenu->AppendSubMenu(tpMenu, "TP");
+	zeldaMenu->AppendSubMenu(twwMenu, "TWW");
+
+	menubar->Append(zeldaMenu, "Zelda");
 
 	wxMenu* viewMenu = new wxMenu;
 	viewMenu->AppendCheckItem(IDM_TOGGLE_TOOLBAR, _("Show &Toolbar"));
@@ -554,6 +584,7 @@ void CFrame::PopulateToolbar(wxToolBar* ToolBar)
 	ToolBar->AddSeparator();
 	WxUtils::AddToolbarButton(ToolBar, wxID_PREFERENCES,        _("Config"),      m_Bitmaps[Toolbar_ConfigMain],  _("Configure..."));
 	WxUtils::AddToolbarButton(ToolBar, IDM_CONFIG_GFX_BACKEND,  _("Graphics"),    m_Bitmaps[Toolbar_ConfigGFX],   _("Graphics settings"));
+	WxUtils::AddToolbarButton(ToolBar, IDM_CONFIG_AUDIO,		_("Audio"),		  m_Bitmaps[Toolbar_ConfigAudio], _("Audio settings"));
 	WxUtils::AddToolbarButton(ToolBar, IDM_CONFIG_CONTROLLERS,  _("Controllers"), m_Bitmaps[Toolbar_Controller],  _("Controller settings"));
 }
 
@@ -597,6 +628,7 @@ void CFrame::InitBitmaps()
 	m_Bitmaps[Toolbar_Pause      ].LoadFile(dir + "pause.png",      wxBITMAP_TYPE_PNG);
 	m_Bitmaps[Toolbar_ConfigMain ].LoadFile(dir + "config.png",     wxBITMAP_TYPE_PNG);
 	m_Bitmaps[Toolbar_ConfigGFX  ].LoadFile(dir + "graphics.png",   wxBITMAP_TYPE_PNG);
+	m_Bitmaps[Toolbar_ConfigAudio].LoadFile(dir + "audio.png",		wxBITMAP_TYPE_PNG);
 	m_Bitmaps[Toolbar_Controller ].LoadFile(dir + "classic.png",    wxBITMAP_TYPE_PNG);
 	m_Bitmaps[Toolbar_Screenshot ].LoadFile(dir + "screenshot.png", wxBITMAP_TYPE_PNG);
 	m_Bitmaps[Toolbar_FullScreen ].LoadFile(dir + "fullscreen.png", wxBITMAP_TYPE_PNG);
@@ -748,6 +780,52 @@ void CFrame::OnToggleDumpAudio(wxCommandEvent& WXUNUSED(event))
 	SConfig::GetInstance().m_DumpAudio = !SConfig::GetInstance().m_DumpAudio;
 }
 
+//Dragonbane
+void CFrame::OnSetDumpPath(wxCommandEvent& WXUNUSED(event))
+{
+	if (Core::IsRunning() && (SConfig::GetInstance().m_DumpFrames || SConfig::GetInstance().m_DumpAudio))
+	{
+		wxMessageBox("Can't change the recording path while video/audio data is being dumped!");
+		return;
+	}
+
+	//Dragonbane: Get/Save last chosen Path
+	IniFile settingsIni;
+	IniFile::Section* iniPathSection;
+	std::string lastRecordingPath = "";
+	bool fileLoaded = false;
+
+	fileLoaded = settingsIni.Load(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+
+	//Get Path
+	if (fileLoaded)
+	{
+		iniPathSection = settingsIni.GetOrCreateSection("RememberedPaths");
+		iniPathSection->Get("LastDumpPath", &lastRecordingPath, "");
+	}
+
+	wxDirDialog dialog(this, _("Browse for a directory to use for video/audio dumps"), lastRecordingPath,
+		wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
+
+	std::string path = "";
+
+	if (dialog.ShowModal() == wxID_OK)
+	{
+		path = WxStrToStr(dialog.GetPath());
+	}
+
+	if (path.empty())
+		return;
+
+	//Save Path
+	if (fileLoaded)
+	{
+		path.append("\\");
+		iniPathSection->Set("LastDumpPath", path);
+		settingsIni.Save(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+	}
+}
+
 void CFrame::OnShowLag(wxCommandEvent& WXUNUSED (event))
 {
 	SConfig::GetInstance().m_ShowLag = !SConfig::GetInstance().m_ShowLag;
@@ -809,28 +887,186 @@ void CFrame::OnRecord(wxCommandEvent& WXUNUSED (event))
 		BootGame("");
 }
 
-void CFrame::OnPlayRecording(wxCommandEvent& WXUNUSED (event))
+//Dragonbane
+void CFrame::OnStopRecord(wxCommandEvent& WXUNUSED(event))
 {
-	wxString path = wxFileSelector(
-			_("Select The Recording File"),
-			wxEmptyString, wxEmptyString, wxEmptyString,
-			_("Dolphin TAS Movies (*.dtm)") +
-				wxString::Format("|*.dtm|%s", wxGetTranslation(wxALL_FILES)),
-			wxFD_OPEN | wxFD_PREVIEW | wxFD_FILE_MUST_EXIST,
-			this);
-
-	if (path.IsEmpty())
+	if (!Core::IsRunningAndStarted() || !Movie::IsPlayingInput() && !Movie::IsRecordingInput())
 		return;
 
 	if (!Movie::IsReadOnly())
 	{
 		// let's make the read-only flag consistent at the start of a movie.
 		Movie::SetReadOnly(true);
-		GetMenuBar()->FindItem(IDM_RECORD_READ_ONLY)->Check();
+		GetMenuBar()->FindItem(IDM_RECORD_READ_ONLY)->Check(true);
+	}
+
+	GetMenuBar()->FindItem(IDM_RECORD)->Enable(true);
+	GetMenuBar()->FindItem(IDM_PLAY_RECORD)->Enable(true);
+	GetMenuBar()->FindItem(IDM_VERIFY_RECORD)->Enable(true);
+	GetMenuBar()->FindItem(IDM_RECORD_STOP)->Enable(false);
+	Movie::CancelRecording();
+}
+
+void CFrame::OnPlayRecording(wxCommandEvent& WXUNUSED (event))
+{
+	if (Core::IsRunningAndStarted())
+	{
+		PanicAlertT("You can only play a movie from a fresh boot. Please close the game and try again without a game running!");
+		return;
+	}
+
+	//Dragonbane: Get/Save last chosen Path
+	IniFile settingsIni;
+	IniFile::Section* iniPathSection;
+	std::string lastPlayPath = "";
+	bool fileLoaded = false;
+
+	fileLoaded = settingsIni.Load(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+
+	//Get Path
+	if (fileLoaded)
+	{
+		iniPathSection = settingsIni.GetOrCreateSection("RememberedPaths");
+		iniPathSection->Get("LastPlayedDTMPath", &lastPlayPath, "");
+	}
+
+	wxString path = wxFileSelector(
+		_("Select The Recording File"),
+		lastPlayPath, wxEmptyString, wxEmptyString,
+		_("Dolphin TAS Movies (*.dtm)") +
+		wxString::Format("|*.dtm|%s", wxGetTranslation(wxALL_FILES)),
+		wxFD_OPEN | wxFD_PREVIEW | wxFD_FILE_MUST_EXIST,
+		this);
+
+	if (path.IsEmpty())
+		return;
+
+	//Save Path
+	if (fileLoaded)
+	{
+		std::string file, legalPathname, extension;
+		SplitPathEscapeChar(WxStrToStr(path), &legalPathname, &file, &extension);
+
+		iniPathSection->Set("LastPlayedDTMPath", legalPathname);
+		settingsIni.Save(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+	}
+
+	if (!Movie::IsReadOnly())
+	{
+		// let's make the read-only flag consistent at the start of a movie.
+		Movie::SetReadOnly(true);
+		GetMenuBar()->FindItem(IDM_RECORD_READ_ONLY)->Check(true);
 	}
 
 	if (Movie::PlayInput(WxStrToStr(path)))
 		BootGame("");
+}
+
+//Dragonbane
+void CFrame::OnRecordVerify(wxCommandEvent& WXUNUSED(event))
+{
+	//Dragonbane: Get/Save last chosen Path
+	IniFile settingsIni;
+	IniFile::Section* iniPathSection;
+	std::string lastDTMPath = "";
+	std::string lastStatePath = "";
+	bool fileLoaded = false;
+
+	fileLoaded = settingsIni.Load(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+
+	//Get Path
+	if (fileLoaded)
+	{
+		iniPathSection = settingsIni.GetOrCreateSection("RememberedPaths");
+		iniPathSection->Get("LastVerificationDTMPath", &lastDTMPath, "");
+		iniPathSection->Get("LastVerificationSAVPath", &lastStatePath, "");
+	}
+
+	wxString path_movie = wxFileSelector(
+		_("Select The Recording File"),
+		StrToWxStr(lastDTMPath), wxEmptyString, wxEmptyString,
+		_("Dolphin TAS Movies (*.dtm)") +
+		wxString::Format("|*.dtm|%s", wxGetTranslation(wxALL_FILES)),
+		wxFD_OPEN | wxFD_PREVIEW | wxFD_FILE_MUST_EXIST,
+		this);
+
+	if (path_movie.IsEmpty())
+		return;
+
+	//Save DTM Path
+	if (fileLoaded)
+	{
+		std::string file, legalPathname, extension;
+		SplitPathEscapeChar(WxStrToStr(path_movie), &legalPathname, &file, &extension);
+
+		iniPathSection->Set("LastVerificationDTMPath", legalPathname);
+		settingsIni.Save(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+	}
+
+	wxString path_state = wxFileSelector(
+		_("Select the state to play the movie from (empty = from beginning)"),
+		StrToWxStr(lastStatePath), wxEmptyString, wxEmptyString,
+		_("All Save States (sav, s##)") +
+		wxString::Format("|*.sav;*.s??|%s", wxGetTranslation(wxALL_FILES)),
+		wxFD_OPEN | wxFD_PREVIEW | wxFD_FILE_MUST_EXIST,
+		this);
+
+	//Save SAV Path
+	if (fileLoaded && !path_state.IsEmpty())
+	{
+		std::string file, legalPathname, extension;
+		SplitPathEscapeChar(WxStrToStr(path_state), &legalPathname, &file, &extension);
+
+		iniPathSection->Set("LastVerificationSAVPath", legalPathname);
+		settingsIni.Save(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+	}
+
+	bool fromStart = false;
+
+	if (path_state.IsEmpty())
+	{
+		if (Movie::IsMovieFromSaveState(WxStrToStr(path_movie)))
+		{
+			path_state = path_movie + wxT(".sav");
+
+			if (!File::Exists(WxStrToStr(path_state)))
+			{
+				PanicAlertT("This movie is supposed to start from a save, which couldn't be found!");
+				return;
+			}
+
+			fromStart = true;
+
+		}
+		else
+		{
+			if (Core::IsRunningAndStarted())
+			{
+				PanicAlertT("You can only verify this movie from a fresh boot. Please close the game and try to verify again without the game running!");
+				return;
+			}
+
+			fromStart = true;
+		}
+	}
+	if (!Movie::IsReadOnly())
+	{
+		// let's make the read-only flag consistent at the start of a movie.
+		Movie::SetReadOnly(true);
+		GetMenuBar()->FindItem(IDM_RECORD_READ_ONLY)->Check(true);
+	}
+
+	if (Movie::VerifyRecording(WxStrToStr(path_movie), WxStrToStr(path_state), fromStart) && !Core::IsRunningAndStarted())
+		BootGame("");
+
+	if (Core::IsRunningAndStarted())
+	{
+		GetMenuBar()->FindItem(IDM_RECORD)->Enable(false);
+		GetMenuBar()->FindItem(IDM_PLAY_RECORD)->Enable(false);
+		GetMenuBar()->FindItem(IDM_VERIFY_RECORD)->Enable(false);
+		GetMenuBar()->FindItem(IDM_RECORD_EXPORT)->Enable(false);
+		GetMenuBar()->FindItem(IDM_RECORD_STOP)->Enable(true);
+	}
 }
 
 void CFrame::OnRecordExport(wxCommandEvent& WXUNUSED (event))
@@ -1181,10 +1417,24 @@ void CFrame::DoStop()
 		}
 
 		// TODO: Show the author/description dialog here
-		if (Movie::IsRecordingInput())
+
+		if (Movie::IsRecordingInput() || Movie::justStoppedRecording)
+		{
 			DoRecordingSave();
+		}
 		if (Movie::IsMovieActive())
+		{
+			//Dragonbane
+			Movie::CancelVerifying();
 			Movie::EndPlayInput(false);
+		}
+
+		if (Movie::cmp_isRunning || Movie::cmp_requested)
+			Movie::CancelComparison();
+
+		//Dragonbane
+		Movie::justStoppedRecording = false;
+
 
 		if (NetPlayDialog::GetNetPlayClient())
 			NetPlayDialog::GetNetPlayClient()->Stop();
@@ -1265,16 +1515,41 @@ void CFrame::DoRecordingSave()
 	if (!paused)
 		DoPause();
 
+	//Dragonbane: Get/Save last chosen Path
+	IniFile settingsIni;
+	IniFile::Section* iniPathSection;
+	std::string lastExportPath = "";
+	bool fileLoaded = false;
+
+	fileLoaded = settingsIni.Load(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+
+	//Get Path
+	if (fileLoaded)
+	{
+		iniPathSection = settingsIni.GetOrCreateSection("RememberedPaths");
+		iniPathSection->Get("LastDTMExportPath", &lastExportPath, "");
+	}
+
 	wxString path = wxFileSelector(
-			_("Select The Recording File"),
-			wxEmptyString, wxEmptyString, wxEmptyString,
-			_("Dolphin TAS Movies (*.dtm)") +
-				wxString::Format("|*.dtm|%s", wxGetTranslation(wxALL_FILES)),
-			wxFD_SAVE | wxFD_PREVIEW | wxFD_OVERWRITE_PROMPT,
-			this);
+		_("Select The Recording File"),
+		lastExportPath, wxEmptyString, wxEmptyString,
+		_("Dolphin TAS Movies (*.dtm)") +
+		wxString::Format("|*.dtm|%s", wxGetTranslation(wxALL_FILES)),
+		wxFD_SAVE | wxFD_PREVIEW | wxFD_OVERWRITE_PROMPT,
+		this);
 
 	if (path.IsEmpty())
 		return;
+
+	//Save Path
+	if (fileLoaded)
+	{
+		std::string file, legalPathname, extension;
+		SplitPathEscapeChar(WxStrToStr(path), &legalPathname, &file, &extension);
+
+		iniPathSection->Set("LastDTMExportPath", legalPathname);
+		settingsIni.Save(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+	}
 
 	Movie::SaveRecording(WxStrToStr(path));
 
@@ -1439,6 +1714,29 @@ void CFrame::OnMemcard(wxCommandEvent& WXUNUSED (event))
 	HotkeyManagerEmu::Enable(true);
 }
 
+//Dragonbane
+void CFrame::OnTPSave(wxCommandEvent& WXUNUSED(event))
+{
+	g_TPSaveFileManager->Show(true);
+}
+void CFrame::OnTPLoad(wxCommandEvent& WXUNUSED(event))
+{
+	g_TPLoadManager->Show(true);
+	g_TPLoadManager->Shown();
+}
+void CFrame::OnTPVideoComparison(wxCommandEvent& WXUNUSED(event))
+{
+	g_TPVideoComparison->Show(true);
+}
+void CFrame::OnTWWSuperSwim(wxCommandEvent& WXUNUSED(event))
+{
+	g_TWWSuperswim->Show(true);
+}
+void CFrame::OnTWWTunerInput(wxCommandEvent& WXUNUSED(event))
+{
+	g_TWWTunerInput->Show(true);
+}
+
 void CFrame::OnExportAllSaves(wxCommandEvent& WXUNUSED (event))
 {
 	CWiiSaveCrypted::ExportAllSaves();
@@ -1594,30 +1892,84 @@ void CFrame::OnToggleSkipIdle(wxCommandEvent& WXUNUSED (event))
 
 void CFrame::OnLoadStateFromFile(wxCommandEvent& WXUNUSED (event))
 {
+	//Dragonbane: Get/Save last chosen Path
+	IniFile settingsIni;
+	IniFile::Section* iniPathSection;
+	std::string lastStateLoadPath = "";
+	bool fileLoaded = false;
+
+	fileLoaded = settingsIni.Load(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+
+	//Get Path
+	if (fileLoaded)
+	{
+		iniPathSection = settingsIni.GetOrCreateSection("RememberedPaths");
+		iniPathSection->Get("LastLoadedSAVPath", &lastStateLoadPath, "");
+	}
+
 	wxString path = wxFileSelector(
 		_("Select the state to load"),
-		wxEmptyString, wxEmptyString, wxEmptyString,
+		lastStateLoadPath, wxEmptyString, wxEmptyString,
 		_("All Save States (sav, s##)") +
-			wxString::Format("|*.sav;*.s??|%s", wxGetTranslation(wxALL_FILES)),
+		wxString::Format("|*.sav;*.s??|%s", wxGetTranslation(wxALL_FILES)),
 		wxFD_OPEN | wxFD_PREVIEW | wxFD_FILE_MUST_EXIST,
 		this);
 
+	//Save Path
+	if (fileLoaded && !path.IsEmpty())
+	{
+		std::string file, legalPathname, extension;
+		SplitPathEscapeChar(WxStrToStr(path), &legalPathname, &file, &extension);
+
+		iniPathSection->Set("LastLoadedSAVPath", legalPathname);
+		settingsIni.Save(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+	}
+
 	if (!path.IsEmpty())
+	{
 		State::LoadAs(WxStrToStr(path));
+	}
 }
 
 void CFrame::OnSaveStateToFile(wxCommandEvent& WXUNUSED (event))
 {
+	//Dragonbane: Get/Save last chosen Path
+	IniFile settingsIni;
+	IniFile::Section* iniPathSection;
+	std::string lastStateSavePath = "";
+	bool fileLoaded = false;
+
+	fileLoaded = settingsIni.Load(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+
+	//Get Path
+	if (fileLoaded)
+	{
+		iniPathSection = settingsIni.GetOrCreateSection("RememberedPaths");
+		iniPathSection->Get("LastSavedSAVPath", &lastStateSavePath, "");
+	}
+
 	wxString path = wxFileSelector(
 		_("Select the state to save"),
-		wxEmptyString, wxEmptyString, wxEmptyString,
+		lastStateSavePath, wxEmptyString, wxEmptyString,
 		_("All Save States (sav, s##)") +
-			wxString::Format("|*.sav;*.s??|%s", wxGetTranslation(wxALL_FILES)),
+		wxString::Format("|*.sav;*.s??|%s", wxGetTranslation(wxALL_FILES)),
 		wxFD_SAVE,
 		this);
 
+	//Save Path
+	if (fileLoaded && !path.IsEmpty())
+	{
+		std::string file, legalPathname, extension;
+		SplitPathEscapeChar(WxStrToStr(path), &legalPathname, &file, &extension);
+
+		iniPathSection->Set("LastSavedSAVPath", legalPathname);
+		settingsIni.Save(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+	}
+
 	if (!path.IsEmpty())
+	{
 		State::SaveAs(WxStrToStr(path));
+	}
 }
 
 void CFrame::OnLoadLastState(wxCommandEvent& event)
@@ -1735,9 +2087,11 @@ void CFrame::UpdateGUI()
 	// Emulation
 	GetMenuBar()->FindItem(IDM_STOP)->Enable(Running || Paused);
 	GetMenuBar()->FindItem(IDM_RESET)->Enable(Running || Paused);
-	GetMenuBar()->FindItem(IDM_RECORD)->Enable(!Movie::IsRecordingInput());
-	GetMenuBar()->FindItem(IDM_PLAY_RECORD)->Enable(!Initialized);
-	GetMenuBar()->FindItem(IDM_RECORD_EXPORT)->Enable(Movie::IsMovieActive());
+	GetMenuBar()->FindItem(IDM_RECORD)->Enable(!Movie::IsMovieActive()); //Dragonbane
+	GetMenuBar()->FindItem(IDM_RECORD_STOP)->Enable(Movie::IsMovieActive()); //Dragonbane
+	GetMenuBar()->FindItem(IDM_PLAY_RECORD)->Enable(!Movie::IsMovieActive()); 
+	GetMenuBar()->FindItem(IDM_VERIFY_RECORD)->Enable(!Movie::IsMovieActive()); //Dragonbane
+	GetMenuBar()->FindItem(IDM_RECORD_EXPORT)->Enable(Movie::IsRecordingInput() || Movie::justStoppedRecording); //Dragonbane
 	GetMenuBar()->FindItem(IDM_FRAMESTEP)->Enable(Running || Paused);
 	GetMenuBar()->FindItem(IDM_SCREENSHOT)->Enable(Running || Paused);
 	GetMenuBar()->FindItem(IDM_TOGGLE_FULLSCREEN)->Enable(Running || Paused);
@@ -1818,6 +2172,7 @@ void CFrame::UpdateGUI()
 				GetMenuBar()->FindItem(IDM_PLAY)->Enable();
 				GetMenuBar()->FindItem(IDM_RECORD)->Enable();
 				GetMenuBar()->FindItem(IDM_PLAY_RECORD)->Enable();
+				GetMenuBar()->FindItem(IDM_VERIFY_RECORD)->Enable(); //Dragonbane
 			}
 			// Prepare to load last selected file, enable play button
 			else if (!SConfig::GetInstance().m_LastFilename.empty() &&
@@ -1828,6 +2183,7 @@ void CFrame::UpdateGUI()
 				GetMenuBar()->FindItem(IDM_PLAY)->Enable();
 				GetMenuBar()->FindItem(IDM_RECORD)->Enable();
 				GetMenuBar()->FindItem(IDM_PLAY_RECORD)->Enable();
+				GetMenuBar()->FindItem(IDM_VERIFY_RECORD)->Enable(); //Dragonbane
 			}
 			else
 			{
@@ -1836,8 +2192,42 @@ void CFrame::UpdateGUI()
 					m_ToolBar->EnableTool(IDM_PLAY, false);
 				GetMenuBar()->FindItem(IDM_PLAY)->Enable(false);
 				GetMenuBar()->FindItem(IDM_RECORD)->Enable(false);
+				GetMenuBar()->FindItem(IDM_RECORD_STOP)->Enable(false);
 				GetMenuBar()->FindItem(IDM_PLAY_RECORD)->Enable(false);
+				GetMenuBar()->FindItem(IDM_VERIFY_RECORD)->Enable(false);
 			}
+		}
+
+		//Dragonbane: Check for button conditions
+		if (Core::IsRunningAndStarted() && !Movie::IsMovieActive())
+		{
+			GetMenuBar()->FindItem(IDM_RECORD)->Enable();
+			GetMenuBar()->FindItem(IDM_PLAY_RECORD)->Enable();
+			GetMenuBar()->FindItem(IDM_VERIFY_RECORD)->Enable();
+			GetMenuBar()->FindItem(IDM_RECORD_STOP)->Enable(false);
+		}
+
+		//Dragonbane: Video Comparison
+		if (!Core::IsRunningAndStarted() && Movie::cmp_requested)
+		{
+			if (!Movie::IsReadOnly())
+			{
+				// let's make the read-only flag consistent at the start of a movie.
+				Movie::SetReadOnly(true);
+				GetMenuBar()->FindItem(IDM_RECORD_READ_ONLY)->Check(true);
+			}
+
+			//Resize the rendering window and set settings to prevent fullscreen/auto-resize
+			SConfig::GetInstance().iRenderWindowWidth = Movie::cmp_width;
+			SConfig::GetInstance().iRenderWindowHeight = Movie::cmp_height;
+
+			SConfig::GetInstance().bRenderWindowAutoSize = false;
+			SConfig::GetInstance().bFullscreen = false;
+			SConfig::GetInstance().bRenderToMain = false;
+			SConfig::GetInstance().bDisableScreenSaver = true;
+
+			if (Movie::StartVideoComparison())
+				BootGame("");
 		}
 
 		// Game has not started, show game list
@@ -1854,6 +2244,7 @@ void CFrame::UpdateGUI()
 			GetMenuBar()->FindItem(IDM_PLAY)->Enable();
 			GetMenuBar()->FindItem(IDM_RECORD)->Enable();
 			GetMenuBar()->FindItem(IDM_PLAY_RECORD)->Enable();
+			GetMenuBar()->FindItem(IDM_VERIFY_RECORD)->Enable(); //Dragonbane
 		}
 	}
 	else if (Initialized)
@@ -1883,6 +2274,57 @@ void CFrame::UpdateGUI()
 			g_CheatsWindow->UpdateGUI();
 		else
 			g_CheatsWindow->Close();
+	}
+
+	//Dragonbane: Auto Save State if requested
+	if (Movie::IsAutoSave())
+	{
+		std::string fileName1 = File::GetUserPath(D_STATESAVES_IDX) + "AutoVerify.sav";
+		std::string fileName2 = File::GetUserPath(D_STATESAVES_IDX) + "AutoVerify.sav.dtm";
+		std::string fileName3 = File::GetUserPath(D_STATESAVES_IDX) + "AutoVerify.sav.dtm.sav";
+
+		if (File::Exists(fileName1))
+			File::Delete(fileName1);
+
+		if (File::Exists(fileName2))
+			File::Delete(fileName2);
+
+		if (File::Exists(fileName3))
+			File::Delete(fileName3);
+
+		State::SaveAs(fileName1);
+	}
+
+	if (Movie::cmp_loadState)
+	{
+		Movie::cmp_loadState = false;
+
+		const std::string stateFilename = Movie::cmp_currentMovie + ".sav";
+
+		SConfig::GetInstance().m_PauseMovie = false;
+		SConfig::GetInstance().m_DumpFrames = true;
+		SConfig::GetInstance().m_DumpAudio = true;
+
+		State::LoadAs(stateFilename);
+	}
+
+	//Dragonbane: Update TAS window when buttons need to be changed
+	if (Movie::checkSave || Movie::uncheckSave)
+	{
+		bool check = Movie::checkSave;
+		bool uncheck = Movie::uncheckSave;
+
+		for (int i = 0; i < 4; ++i)
+		{
+			if (SConfig::GetInstance().m_SIDevice[i] != SIDEVICE_NONE && SConfig::GetInstance().m_SIDevice[i] != SIDEVICE_GC_GBA)
+			{
+				if (g_TASInputDlg[i])
+					g_TASInputDlg[i]->UpdateExtraButtons(check, uncheck);
+			}
+		}
+
+		Movie::checkSave = false;
+		Movie::uncheckSave = false;
 	}
 }
 

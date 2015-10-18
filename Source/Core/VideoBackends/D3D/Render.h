@@ -35,6 +35,7 @@ public:
 	void RestoreCull();
 
 	void RenderText(const std::string& text, int left, int top, u32 color) override;
+	void RenderTextSize(const std::string& text, int left, int top, u32 color, float size); //Dragonbane
 
 	u32 AccessEFB(EFBAccessType type, u32 x, u32 y, u32 poke_data) override;
 	u16 BBoxRead(int index) override;

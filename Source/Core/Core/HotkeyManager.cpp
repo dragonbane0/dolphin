@@ -65,6 +65,8 @@ const std::string hotkey_labels[] =
 	_trans("Decrease Convergence"),
 	_trans("Increase Convergence"),
 
+	_trans("Auto Verify Recording"), //Dragonbane
+
 	_trans("Load State Slot 1"),
 	_trans("Load State Slot 2"),
 	_trans("Load State Slot 3"),

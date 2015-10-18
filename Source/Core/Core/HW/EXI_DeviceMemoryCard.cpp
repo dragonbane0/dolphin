@@ -503,7 +503,8 @@ void CEXIMemoryCard::DoState(PointerWrap &p)
 	// for movie sync, we need to save/load memory card contents (and other data) in savestates.
 	// otherwise, we'll assume the user wants to keep their memcards and saves separate,
 	// unless we're loading (in which case we let the savestate contents decide, in order to stay aligned with them).
-	bool storeContents = (Movie::IsMovieActive());
+	bool storeContents = (Movie::IsMovieActive() || Movie::SaveMemCard()); //Dragonbane
+
 	p.Do(storeContents);
 
 	if (storeContents)

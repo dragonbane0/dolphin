@@ -392,7 +392,19 @@ void CGameListCtrl::InsertItemInReportView(long _Index)
 		name = wxString::Format(_("%s (Disc %i)"), name.c_str(), disc_number);
 	}
 
-	SetItem(_Index, COLUMN_TITLE, name, -1);
+	std::string finalName = WxStrToStr(name);
+
+	//Dragonbane: Better structure
+	std::string fullPath = rISOFile.GetFileName();
+
+	std::string Filename, LegalPathname, extension;
+	SplitPath(fullPath, &LegalPathname, &Filename, &extension);
+
+	std::string finalTitle = StringFromFormat("%s (%s)", finalName.c_str(), Filename.c_str());
+
+	SetItem(_Index, COLUMN_TITLE, StrToWxStr(finalTitle), -1);
+
+
 	SetItem(_Index, COLUMN_MAKER, StrToWxStr(rISOFile.GetCompany()), -1);
 
 	// Emulation state

@@ -76,6 +76,20 @@ bool AreMemoryBreakpointsActivated();
 
 // Routines to access physically addressed memory, designed for use by
 // emulated hardware outside the CPU. Use "Device_" prefix.
+
+
+//Dragonbane
+std::string Read_String(const u32 startAddress, int count);
+void Write_String(const std::string text, const u32 startAddress);
+
+// Useful helper functions, used by ARM JIT
+float Read_F32(const u32 address);
+double Read_F64(const u32 address);
+
+// Useful helper functions, used by ARM JIT
+void Write_F32(const float var, const u32 address); //Dragonbane
+void Write_F64(const double var, const u32 address);
+
 std::string GetString(u32 em_address, size_t size = 0);
 u8* GetPointer(const u32 address);
 void CopyFromEmu(void* data, u32 address, size_t size);

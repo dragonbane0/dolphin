@@ -1,5 +1,5 @@
-// Copyright 2008 Dolphin Emulator Project
-// Licensed under GPLv2+
+// Copyright 2013 Dolphin Emulator Project
+// Licensed under GPLv2
 // Refer to the license.txt file included.
 
 #pragma once
@@ -32,8 +32,8 @@ public:
 private:
 	std::unique_ptr<sf::TcpSocket> client;
 	std::unique_ptr<sf::TcpSocket> clock_sync;
-	char send_data[5];
-	char recv_data[5];
+	unsigned char send_data[5];
+	unsigned char recv_data[5];
 
 	u64 time_cmd_sent;
 	u64 last_time_slice;
@@ -48,11 +48,14 @@ public:
 	CSIDevice_GBA(SIDevices device, int _iDeviceNumber);
 	~CSIDevice_GBA();
 
-	int RunBuffer(u8* _pBuffer, int _iLength) override;
-	int TransferInterval() override;
+	virtual int RunBuffer(u8* _pBuffer, int _iLength) override;
+	virtual int TransferInterval() override;
 
-	bool GetData(u32& _Hi, u32& _Low) override { return false; }
-	void SendCommand(u32 _Cmd, u8 _Poll) override {}
+	virtual bool GetData(u32& _Hi, u32& _Low) override { return false; }
+	virtual void SendCommand(u32 _Cmd, u8 _Poll) override {}
+
+	//Dragonbane: Savestate support
+	virtual void DoState(PointerWrap& p) override;
 
 private:
 	u8 send_data[5];

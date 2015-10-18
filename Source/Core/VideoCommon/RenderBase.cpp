@@ -413,6 +413,37 @@ void Renderer::DrawDebugText()
 	//and then the text
 	g_renderer->RenderText(final_cyan, 20, 20, 0xFF00FFFF);
 	g_renderer->RenderText(final_yellow, 20, 20, 0xFFFFFF00);
+
+	//Dragonbane: Recording Notice
+	if (Movie::IsRecordingInput())
+	{
+		g_renderer->RenderText("RECORDING", 20, 0, 0xFFFF00FF);
+	}
+	else if (Movie::IsPlayingInput())
+	{
+		g_renderer->RenderText("PLAYBACK", 20, 0, 0xFF00FF00);
+	}
+
+	std::string gameID = SConfig::GetInstance().GetUniqueID();
+	if (!gameID.compare("GZLJ01"))
+	{
+		std::string tunerInfo = "Tuner Status: ";
+
+		if (Movie::tunerStatus == 0)
+			tunerInfo.append("Disabled");
+		else if (Movie::tunerStatus == 1)
+			tunerInfo.append("Standby");
+		else if (Movie::tunerStatus == 2)
+			tunerInfo.append("Ready");
+		else if (Movie::tunerStatus == 3)
+			tunerInfo.append("Calling");
+		else if (Movie::tunerStatus == 4)
+			tunerInfo.append("Connected");
+		else
+			tunerInfo.append("N/A");
+
+		g_renderer->RenderText(tunerInfo, 200, 0, 0xFFFFFF00);
+	}
 }
 
 void Renderer::UpdateDrawRectangle(int backbuffer_width, int backbuffer_height)

@@ -760,6 +760,13 @@ void Callback_VideoCopiedToXFB(bool video_update)
 		s_drawn_frame++;
 
 	Movie::FrameUpdate();
+
+	//Dragonbane
+	if (Movie::updateMainFrame)
+	{
+		Movie::updateMainFrame = false;
+		Host_UpdateMainFrame();
+	}
 }
 
 void UpdateTitle()

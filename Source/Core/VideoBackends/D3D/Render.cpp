@@ -14,6 +14,7 @@
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/Host.h"
+#include "Core/Movie.h" //Dragonbane
 
 #include "VideoBackends/D3D/BoundingBox.h"
 #include "VideoBackends/D3D/D3DBase.h"
@@ -279,6 +280,12 @@ void Renderer::RenderText(const std::string& text, int left, int top, u32 color)
 {
 	D3D::font.DrawTextScaled((float)(left+1), (float)(top+1), 20.f, 0.0f, color & 0xFF000000, text);
 	D3D::font.DrawTextScaled((float)left, (float)top, 20.f, 0.0f, color, text);
+}
+//Dragonbane
+void Renderer::RenderTextSize(const std::string& text, int left, int top, u32 color, float size)
+{
+	D3D::font.DrawTextScaled((float)(left + 1), (float)(top + 1), size, 0.0f, color & 0xFF000000, text);
+	D3D::font.DrawTextScaled((float)left, (float)top, size, 0.0f, color, text);
 }
 
 TargetRectangle Renderer::ConvertEFBRectangle(const EFBRectangle& rc)
@@ -743,6 +750,9 @@ void Renderer::SwapImpl(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, co
 	// activate linear filtering for the buffer copies
 	D3D::SetLinearCopySampler();
 
+	//Dragonbane: Video Comparison Stuff
+	TargetRectangle newTargetRc;
+
 	if (g_ActiveConfig.bUseXFB && g_ActiveConfig.bUseRealXFB)
 	{
 		// TODO: Television should be used to render Virtual XFB mode as well.
@@ -799,6 +809,109 @@ void Renderer::SwapImpl(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, co
 
 		// TODO: Improve sampling algorithm for the pixel shader so that we can use the multisampled EFB texture as source
 		D3DTexture2D* read_texture = FramebufferManager::GetResolvedEFBColorTexture();
+
+		//Dragonbane: Moved this here for comparison text
+
+		// Reset viewport for drawing text
+		D3D11_VIEWPORT vp = CD3D11_VIEWPORT(0.0f, 0.0f, (float)GetBackbufferWidth(), (float)GetBackbufferHeight());
+		D3D::context->RSSetViewports(1, &vp);
+
+		//Dragonbane
+		if (Movie::cmp_isRunning)
+		{
+			int borderSize = 10;
+			//PanicAlertT("Backbuffer Width: %i, Backbuffer Height: %i, Src Width: %i, Src Height: %i\n Target Width: %i, Target Height: %i", s_backbuffer_width, s_backbuffer_height, sourceRc.GetWidth(), sourceRc.GetHeight(), targetRc.GetWidth(), targetRc.GetHeight());
+
+			targetRc.right -= targetRc.left;
+			targetRc.bottom -= targetRc.top;
+
+			//int width = targetRc.r
+
+			float scaleVal = targetRc.right / ((s_backbuffer_width / 2.0f) - (borderSize * 2));
+			int center = s_backbuffer_height / 2;
+
+			targetRc.right = (int)(targetRc.right / scaleVal);
+			targetRc.bottom = (int)(targetRc.bottom / scaleVal);
+
+			targetRc.top = center - (targetRc.bottom / 2);
+			targetRc.bottom += targetRc.top;
+
+			float textSize;
+
+			if (Movie::cmp_width >= 1920 && Movie::cmp_height >= 1080)
+				textSize = 75.f;
+			else if (Movie::cmp_width >= 1280 && Movie::cmp_height >= 720)
+				textSize = 50.f;
+			else if (Movie::cmp_width >= 856 && Movie::cmp_height >= 480)
+				textSize = 33.f;
+			else if (Movie::cmp_width >= 640 && Movie::cmp_height >= 360)
+				textSize = 25.f;
+			else
+				textSize = 20.f;
+
+			if (Movie::cmp_currentMovie == Movie::cmp_leftMovie) //Left side
+			{
+				targetRc.left = (borderSize * 3) + targetRc.right;
+				RenderTextSize(Movie::cmp_rightTitle, targetRc.left + (targetRc.right / 2.5f), targetRc.top / 2, 0xFFFFFFFF, textSize);
+
+				targetRc.left = borderSize;
+				RenderTextSize(Movie::cmp_leftTitle, targetRc.left + (targetRc.right / 2.5f), targetRc.top / 2, 0xFFFFFFFF, textSize);
+
+				if (Movie::cmp_rightFinished && Movie::cmp_startTimerFrame > 0 && Movie::cmp_startTimerFrame <= Movie::cmp_curentBranchFrame)
+				{
+					u64 framesPassed = Movie::cmp_curentBranchFrame - Movie::cmp_startTimerFrame;
+					float seconds = framesPassed / 30.f;
+
+					std::string timerText = StringFromFormat("+%.2f", seconds);
+					std::replace(timerText.begin(), timerText.end(), ',', '.');
+
+					if (!Movie::GetNextComparisonMovie(false) && (Movie::g_currentFrame == (Movie::g_totalFrames - 2) || Movie::g_currentFrame == (Movie::g_totalFrames - 1) || Movie::g_currentFrame == Movie::g_totalFrames)) //Blue for final text
+					{
+						RenderTextSize(timerText, ((borderSize * 3) + targetRc.right) + targetRc.right / 2.5f, center, 0xFF00FFFF, textSize + 3.f);
+					}
+					else
+					{
+						RenderTextSize(timerText, ((borderSize * 3) + targetRc.right) + targetRc.right / 2.5f, center, 0xFFFFFFFF, textSize + 3.f);
+					}
+				}
+			}
+			else //Right side
+			{
+				targetRc.left = borderSize;
+				RenderTextSize(Movie::cmp_leftTitle, targetRc.left + (targetRc.right / 2.5f), targetRc.top / 2, 0xFFFFFFFF, textSize);
+
+				targetRc.left = (borderSize * 3) + targetRc.right;
+				RenderTextSize(Movie::cmp_rightTitle, targetRc.left + (targetRc.right / 2.5f), targetRc.top / 2, 0xFFFFFFFF, textSize);
+
+				if (Movie::cmp_leftFinished && Movie::cmp_startTimerFrame > 0 && Movie::cmp_startTimerFrame <= Movie::cmp_curentBranchFrame)
+				{
+					u64 framesPassed = Movie::cmp_curentBranchFrame - Movie::cmp_startTimerFrame;
+					float seconds = framesPassed / 30.f;
+
+					std::string timerText = StringFromFormat("+%.2f", seconds);
+					std::replace(timerText.begin(), timerText.end(), ',', '.');
+
+					if (!Movie::GetNextComparisonMovie(false) && (Movie::g_currentFrame == (Movie::g_totalFrames - 2) || Movie::g_currentFrame == (Movie::g_totalFrames - 1) || Movie::g_currentFrame == Movie::g_totalFrames)) //Blue for final text
+					{
+						RenderTextSize(timerText, borderSize + (targetRc.right / 2.5f), center, 0xFF00FFFF, textSize + 3.f);
+					}
+					else
+					{
+						RenderTextSize(timerText, borderSize + (targetRc.right / 2.5f), center, 0xFFFFFFFF, textSize + 3.f);
+					}
+				}
+			}
+
+			targetRc.right += targetRc.left;
+
+			newTargetRc.left = 0;
+			newTargetRc.top = 0;
+			newTargetRc.right = s_backbuffer_width;
+			newTargetRc.bottom = s_backbuffer_height;
+
+			Renderer::target_rc = newTargetRc;
+		}
+
 		BlitScreen(sourceRc, targetRc, read_texture, GetTargetWidth(), GetTargetHeight(), Gamma);
 	}
 
@@ -832,8 +945,7 @@ void Renderer::SwapImpl(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, co
 			}
 			else
 			{
-				std::string msg = StringFromFormat("Dumping Frames to \"%sframedump0.avi\" (%dx%d RGB24)",
-					File::GetUserPath(D_DUMPFRAMES_IDX).c_str(), s_recordWidth, s_recordHeight);
+				std::string msg = StringFromFormat("Dumping Frames to \"framedump0.avi\" (%dx%d RGB24)", s_recordWidth, s_recordHeight); //Dragonbane
 
 				OSD::AddMessage(msg, 2000);
 			}
@@ -869,10 +981,7 @@ void Renderer::SwapImpl(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, co
 		bLastFrameDumped = false;
 	}
 
-	// Reset viewport for drawing text
-	D3D11_VIEWPORT vp = CD3D11_VIEWPORT(0.0f, 0.0f, (float)GetBackbufferWidth(), (float)GetBackbufferHeight());
-	D3D::context->RSSetViewports(1, &vp);
-
+	//Dragonbane: Debug Text after frame dump
 	Renderer::DrawDebugText();
 
 	OSD::DrawMessages();

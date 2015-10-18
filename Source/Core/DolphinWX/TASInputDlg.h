@@ -13,6 +13,8 @@
 #include "Core/HW/WiimoteEmu/WiimoteEmu.h"
 #include "InputCommon/GCPadStatus.h"
 
+#include <lua.hpp> //Dragonbane
+
 class wxCheckBox;
 class wxSlider;
 class wxStaticBitmap;
@@ -29,6 +31,8 @@ class TASInputDlg : public wxDialog
 		            long style = wxDEFAULT_DIALOG_STYLE | wxSTAY_ON_TOP);
 
 		void OnCloseWindow(wxCloseEvent& event);
+		void UpdateExtraButtons(bool check, bool uncheck); //Dragonbane
+		void UpdateFromButtons(wxCommandEvent& event); //Dragonbane
 		void UpdateFromSliders(wxCommandEvent& event);
 		void UpdateFromText(wxCommandEvent& event);
 		void OnMouseDownL(wxMouseEvent& event);
@@ -46,6 +50,14 @@ class TASInputDlg : public wxDialog
 		wxBitmap CreateStickBitmap(int x, int y);
 		void SetWiiButtons(u16* butt);
 		void HandleExtensionChange();
+
+		//Dragonbane
+		void iPressButton(const char* button);
+		void iReleaseButton(const char* button);
+		void iSetMainStickX(int xVal);
+		void iSetMainStickY(int yVal);
+		void iSetCStickX(int xVal);
+		void iSetCStickY(int yVal);
 
 	private:
 		const int ID_C_STICK = 1001;
@@ -89,6 +101,10 @@ class TASInputDlg : public wxDialog
 		void SetButtonValue(Button* button, bool CurrentState);
 		void SetSliderValue(Control* control, int CurrentValue);
 		void CreateBaseLayout();
+
+		//Dragonbane
+		void ExecuteScripts();
+
 		void UpdateStickBitmap(Stick stick);
 		void InvalidateButton(Button* button);
 		void InvalidateControl(Control* button);
@@ -119,7 +135,10 @@ class TASInputDlg : public wxDialog
 
 		Stick m_cc_l_stick, m_cc_r_stick;
 
-		Button* m_buttons[13];
+		//Dragonbane
+		Button m_reset, m_quickspin, m_rollassist, m_skipDialog;
+
+		Button* m_buttons[18]; //Original: 17
 		Button m_cc_buttons[15];
 		Control* m_controls[10];
 		Control* m_cc_controls[6];
@@ -138,6 +157,13 @@ class TASInputDlg : public wxDialog
 		wxStaticBoxSizer* m_cc_r_stick_szr;
 
 		bool m_has_layout = false;
+
+		//Dragonbane
+		int quickspin_timer = 0;
+		bool quickspin_enabled = false;
+
+		bool auto_dialog = false;
+		int dialog_timer = 0;
 
 		wxGridSizer* m_buttons_dpad;
 };

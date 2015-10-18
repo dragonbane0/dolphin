@@ -24,6 +24,9 @@ private:
 	static void StoreFrame(const void* data);
 	static void* GetFrame();
 
+	//Dragonbane
+	static std::string GetCurrDumpFile(int fileCount, bool getTempFile);
+
 public:
 #ifdef _WIN32
 	static bool Start(HWND hWnd, int w, int h);

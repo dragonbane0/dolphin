@@ -511,6 +511,9 @@ void LoadAs(const std::string& filename)
 
 	g_loadDepth++;
 
+	//Dragonbane
+	Movie::justStoppedRecording = false;
+
 	// Save temp buffer for undo load state
 	if (!Movie::IsJustStartingRecordingInputFromSaveState())
 	{
@@ -547,9 +550,15 @@ void LoadAs(const std::string& filename)
 		{
 			Core::DisplayMessage(StringFromFormat("Loaded state from %s", filename.c_str()), 2000);
 			if (File::Exists(filename + ".dtm"))
+			{
 				Movie::LoadInput(filename + ".dtm");
+			}
 			else if (!Movie::IsJustStartingRecordingInputFromSaveState() && !Movie::IsJustStartingPlayingInputFromSaveState())
+			{
+				//Dragonbane
+				Movie::CancelVerifying();
 				Movie::EndPlayInput(false);
+			}
 		}
 		else
 		{

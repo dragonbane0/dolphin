@@ -269,6 +269,39 @@ bool SplitPath(const std::string& full_path, std::string* _pPath, std::string* _
 	return true;
 }
 
+//Dragonbane
+bool SplitPathEscapeChar(const std::string& full_path, std::string* _pPath, std::string* _pFilename, std::string* _pExtension)
+{
+	if (full_path.empty())
+		return false;
+
+	size_t dir_end = full_path.find_last_of("\\"
+		// Windows needs the : included for something like just "C:" to be considered a directory
+#ifdef _WIN32
+		":"
+#endif
+		);
+	if (std::string::npos == dir_end)
+		dir_end = 0;
+	else
+		dir_end += 1;
+
+	size_t fname_end = full_path.rfind('.');
+	if (fname_end < dir_end || std::string::npos == fname_end)
+		fname_end = full_path.size();
+
+	if (_pPath)
+		*_pPath = full_path.substr(0, dir_end);
+
+	if (_pFilename)
+		*_pFilename = full_path.substr(dir_end, fname_end - dir_end);
+
+	if (_pExtension)
+		*_pExtension = full_path.substr(fname_end);
+
+	return true;
+}
+
 void BuildCompleteFilename(std::string& _CompleteFilename, const std::string& _Path, const std::string& _Filename)
 {
 	_CompleteFilename = _Path;

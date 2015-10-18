@@ -31,17 +31,25 @@
 #include "Core/ConfigManager.h" // for PAL60
 #include "Core/CoreTiming.h"
 
+#include "Core/Movie.h" //Dragonbane
+
 static HWND s_emu_wnd;
 static LONG s_byte_buffer;
 static LONG s_frame_count;
 static LONG s_total_bytes;
 static PAVIFILE s_file;
+static PAVIFILE s_file_temp; //Dragonbane
+static int tempFileCount; //Dragonbane
+static PGETFRAME s_getFrame_temp; //Dragonbane
 static int s_width;
 static int s_height;
 static int s_file_count;
+static u64 s_last_key_temp; //Dragonbane
+static bool s_stopTempFile; //Dragonbane
 static u64 s_last_frame;
 static PAVISTREAM s_stream;
 static PAVISTREAM s_stream_compressed;
+static PAVISTREAM s_stream_temp; //Dragonbane
 static int s_frame_rate;
 static AVISTREAMINFO s_header;
 static AVICOMPRESSOPTIONS s_options;
@@ -52,6 +60,83 @@ static BITMAPINFOHEADER s_bitmap;
 static void* s_stored_frame = nullptr;
 static u64 s_stored_frame_size = 0;
 static bool s_start_dumping = false;
+
+
+//Dragonbane
+std::string AVIDump::GetCurrDumpFile(int fileCount, bool getTempFile)
+{
+	//Dragonbane: Get last chosen Path
+	IniFile settingsIni;
+	IniFile::Section* iniPathSection;
+	std::string lastRecordingPath = "";
+	bool fileLoaded = false;
+
+	fileLoaded = settingsIni.Load(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+
+	//Get Path
+	if (fileLoaded)
+	{
+		iniPathSection = settingsIni.GetOrCreateSection("RememberedPaths");
+		iniPathSection->Get("LastDumpPath", &lastRecordingPath, "");
+	}
+
+	std::string dumpFolder;
+
+	if (lastRecordingPath.empty())
+		dumpFolder = File::GetUserPath(D_DUMPFRAMES_IDX);
+	else
+		dumpFolder = lastRecordingPath;
+
+	std::string movie_file_name = "";
+	bool lastSide = false;
+
+	if (Movie::cmp_isRunning)
+	{
+		if (Movie::cmp_outputPath.empty())  //Default Save Path
+		{
+			movie_file_name = StringFromFormat("%sComparison%d.avi", dumpFolder.c_str(), fileCount);
+		}
+		else
+		{
+			std::string file, legalPathname, extension;
+			SplitPathEscapeChar(Movie::cmp_outputPath, &legalPathname, &file, &extension);
+
+			if (extension.empty() || extension.compare(".avi"))
+			{
+				movie_file_name = StringFromFormat("%sComparison%d", legalPathname.c_str(), fileCount);
+			}
+			else
+			{
+				movie_file_name = StringFromFormat("%s%s%d", legalPathname.c_str(), file.c_str(), fileCount);
+			}
+		}
+
+		if (Movie::cmp_leftFinished || Movie::cmp_rightFinished)
+			lastSide = true;
+
+		if (!lastSide)
+		{
+			movie_file_name.append("_temp.avi");
+		}
+		else
+		{
+			if (getTempFile)
+			{
+				movie_file_name.append("_temp.avi");
+			}
+			else
+			{
+				movie_file_name.append(".avi");
+			}
+		}
+	}
+	else
+	{
+		movie_file_name = StringFromFormat("%sframedump%d.avi", dumpFolder.c_str(), fileCount);
+	}
+
+	return movie_file_name;
+}
 
 bool AVIDump::Start(HWND hWnd, int w, int h)
 {
@@ -72,6 +157,38 @@ bool AVIDump::Start(HWND hWnd, int w, int h)
 	SetBitmapFormat();
 	StoreFrame(nullptr);
 
+	//Dragonbane: Setup file reading if last side
+	bool lastSide = false;
+
+	if (Movie::cmp_isRunning)
+	{
+		if (Movie::cmp_leftFinished || Movie::cmp_rightFinished)
+			lastSide = true;
+
+		if (lastSide)
+		{
+			tempFileCount = 0;
+			s_stopTempFile = false;
+			std::string movie_file_name = GetCurrDumpFile(tempFileCount, true);
+
+			if (File::Exists(movie_file_name) && Movie::cmp_startTimerFrame > Movie::cmp_curentBranchFrame) //Dragonbane: Open temp file for reading
+			{
+				HRESULT h2 = AVIFileOpenA(&s_file_temp, movie_file_name.c_str(), OF_READ, nullptr);
+				HRESULT h3 = AVIFileGetStream(s_file_temp, &s_stream_temp, streamtypeVIDEO, 0);
+
+				s_last_key_temp = 1; //Skip first key frame as its always black
+
+				s_getFrame_temp = AVIStreamGetFrameOpen(s_stream_temp, &s_bitmap);
+
+				if (!s_getFrame_temp)
+				{
+					PanicAlertT("Your chosen compression codec can not be decompressed again! Can't create video comparison!");
+					Movie::CancelComparison();
+				}
+			}
+		}
+	}
+
 	return CreateFile();
 }
 
@@ -80,25 +197,41 @@ bool AVIDump::CreateFile()
 	s_total_bytes = 0;
 	s_frame_count = 0;
 
-	std::string movie_file_name = StringFromFormat("%sframedump%d.avi", File::GetUserPath(D_DUMPFRAMES_IDX).c_str(), s_file_count);
+	std::string movie_file_name = "";
 
-	// Create path
-	File::CreateFullPath(movie_file_name);
+	//Dragonbane: Movie Logic
+	bool lastSide = false;
 
-	// Ask to delete file
-	if (File::Exists(movie_file_name))
+	movie_file_name = GetCurrDumpFile(s_file_count, false);
+
+	if (Movie::cmp_isRunning)
 	{
-		if (SConfig::GetInstance().m_DumpFramesSilent ||
-		    AskYesNoT("Delete the existing file '%s'?", movie_file_name.c_str()))
+		if (Movie::cmp_leftFinished || Movie::cmp_rightFinished)
+			lastSide = true;
+	}
+
+	if (!lastSide) //Dragonbane: Stay silent if last side is recorded
+	{
+		// Create path
+		File::CreateFullPath(movie_file_name);
+
+		// Ask to delete file
+		if (File::Exists(movie_file_name))
 		{
-			File::Delete(movie_file_name);
+			if (SConfig::GetInstance().m_DumpFramesSilent ||
+				AskYesNoT("Delete the existing file '%s'?", movie_file_name.c_str()))
+			{
+				File::Delete(movie_file_name);
+			}
 		}
 	}
 
 	AVIFileInit();
 	NOTICE_LOG(VIDEO, "Opening AVI file (%s) for dumping", movie_file_name.c_str());
+
 	// TODO: Make this work with AVIFileOpenW without it throwing REGDB_E_CLASSNOTREG
 	HRESULT hr = AVIFileOpenA(&s_file, movie_file_name.c_str(), OF_WRITE | OF_CREATE, nullptr);
+
 	if (FAILED(hr))
 	{
 		if (hr == AVIERR_BADFORMAT) NOTICE_LOG(VIDEO, "The file couldn't be read, indicating a corrupt file or an unrecognized format.");
@@ -119,7 +252,7 @@ bool AVIDump::CreateFile()
 		return false;
 	}
 
-	if (!s_file_count)
+	if (!s_file_count && !lastSide) //Dragonbane: Stay silent and re-use settings if last side is recorded
 	{
 		if (!SetCompressionOptions())
 		{
@@ -174,9 +307,51 @@ void AVIDump::Stop()
 	// store one copy of the last video frame, CFR case
 	if (s_stream_compressed)
 		AVIStreamWrite(s_stream_compressed, s_frame_count++, 1, GetFrame(), s_bitmap.biSizeImage, AVIIF_KEYFRAME, nullptr, &s_byte_buffer);
+	
+	//Dragonbane:: Dump 5 seconds of the same frame for readability
+	if (Movie::cmp_justFinished || Movie::cmp_rightFinished && Movie::cmp_leftFinished || (Movie::cmp_rightFinished || Movie::cmp_leftFinished) && Movie::cmp_movieFinished && !Movie::GetNextComparisonMovie(false))
+	{
+		Movie::cmp_justFinished = false;
+
+		if (s_stream && s_stream_compressed)
+		{
+			int endFrames = s_frame_rate * 5;
+			for (int i = 0; i < endFrames - 1; i++)
+			{
+				AVIStreamWrite(s_stream, s_frame_count++, 1, nullptr, 0, 0, nullptr, nullptr);
+			}
+			AVIStreamWrite(s_stream_compressed, s_frame_count++, 1, GetFrame(), s_bitmap.biSizeImage, AVIIF_KEYFRAME, nullptr, &s_byte_buffer);
+		}
+	}
+	
 	s_start_dumping = false;
 	CloseFile();
 	s_file_count = 0;
+
+	//Dragonbane
+	if (s_getFrame_temp)
+	{
+		AVIStreamGetFrameClose(s_getFrame_temp);
+		s_getFrame_temp = nullptr;
+	}
+
+	if (s_stream_temp)
+	{
+		AVIStreamClose(s_stream_temp);
+		s_stream_temp = nullptr;
+	}
+
+	if (s_file_temp)
+	{
+		AVIFileRelease(s_file_temp);
+		s_file_temp = nullptr;
+
+		std::string movie_file_name = GetCurrDumpFile(tempFileCount, true);
+
+		if (File::Exists(movie_file_name))
+			File::Delete(movie_file_name);
+	}
+
 	NOTICE_LOG(VIDEO, "Stop");
 }
 
@@ -202,10 +377,184 @@ void AVIDump::StoreFrame(const void* data)
 	}
 	if (s_stored_frame)
 	{
-		if (data)
-			memcpy(s_stored_frame, data, s_bitmap.biSizeImage);
+		//PanicAlertT("Width: %i, Height: %i, Bit Count: %i", s_bitmap.biWidth, s_bitmap.biHeight, s_bitmap.biBitCount);
+
+		if (data && (s_file_count || !Movie::cmp_isRunning || s_frame_count > 0))
+		{
+			bool lastSide = false, readOnly = false;
+
+			if (Movie::cmp_isRunning && (Movie::cmp_leftFinished || Movie::cmp_rightFinished))
+				lastSide = true;
+
+			if (lastSide && Movie::cmp_startTimerFrame > Movie::cmp_curentBranchFrame) //Dragonbane: Combine frames
+				readOnly = true;
+			else
+				readOnly = false;
+
+
+			if (readOnly && s_getFrame_temp)
+			{
+				size_t totalBytes = s_bitmap.biSizeImage / 2;
+				size_t rowSize = (s_bitmap.biWidth * (s_bitmap.biBitCount / 8)) / 2;
+				size_t currentByte = 0;
+
+				if (s_last_key_temp < 2)
+				{
+					BOOL result = AVIStreamIsKeyFrame(s_stream_temp, s_last_key_temp);
+
+					if (!result)
+						s_last_key_temp = AVIStreamNextKeyFrame(s_stream_temp, s_last_key_temp);
+				}
+
+				u64 samplePos = AVIStreamFindSample(s_stream_temp, s_last_key_temp, FIND_ANY);
+
+				u64 s_last_key_old = s_last_key_temp;
+
+				s_last_key_temp = AVIStreamNextKeyFrame(s_stream_temp, s_last_key_temp);
+
+				void* s_uncompressed_frame = AVIStreamGetFrame(s_getFrame_temp, samplePos);
+				std::string movie_file_name;
+
+				if (!s_uncompressed_frame || s_stopTempFile)
+				{
+					//Close current file
+					if (s_getFrame_temp)
+					{
+						AVIStreamGetFrameClose(s_getFrame_temp);
+						s_getFrame_temp = nullptr;
+					}
+
+					if (s_stream_temp)
+					{
+						AVIStreamClose(s_stream_temp);
+						s_stream_temp = nullptr;
+					}
+
+					if (s_file_temp)
+					{
+						AVIFileRelease(s_file_temp);
+						s_file_temp = nullptr;
+
+						movie_file_name = GetCurrDumpFile(tempFileCount, true);
+
+						if (File::Exists(movie_file_name))
+							File::Delete(movie_file_name);
+					}
+
+					//Check if we have another temp file
+					tempFileCount++;
+					s_stopTempFile = false;
+
+					movie_file_name = GetCurrDumpFile(tempFileCount, true);
+
+					if (File::Exists(movie_file_name)) //Dragonbane: Open temp file for reading
+					{
+						HRESULT h2 = AVIFileOpenA(&s_file_temp, movie_file_name.c_str(), OF_READ, nullptr);
+						HRESULT h3 = AVIFileGetStream(s_file_temp, &s_stream_temp, streamtypeVIDEO, 0);
+
+						s_last_key_temp = 0; //Not the first file anymore, so start from keyframe 0
+
+						s_getFrame_temp = AVIStreamGetFrameOpen(s_stream_temp, &s_bitmap);
+
+						if (!s_getFrame_temp)
+						{
+							PanicAlertT("Your chosen compression codec can not be decompressed again! Can't continue video comparison!");
+							Movie::CancelComparison();
+							return;
+						}
+
+						BOOL result = AVIStreamIsKeyFrame(s_stream_temp, s_last_key_temp);
+
+						if (!result)
+							s_last_key_temp = AVIStreamNextKeyFrame(s_stream_temp, s_last_key_temp);
+
+						samplePos = AVIStreamFindSample(s_stream_temp, s_last_key_temp, FIND_ANY);
+
+						s_last_key_old = s_last_key_temp;
+
+						s_last_key_temp = AVIStreamNextKeyFrame(s_stream_temp, s_last_key_temp);
+
+						s_uncompressed_frame = AVIStreamGetFrame(s_getFrame_temp, samplePos);
+
+						if (!s_uncompressed_frame)
+						{
+							//PanicAlertT("Last frame stored. Start timer now!");
+							Movie::cmp_startTimerFrame = Movie::cmp_curentBranchFrame;
+							memcpy(s_stored_frame, data, s_bitmap.biSizeImage);
+							return;
+						}
+					}
+					else
+					{
+						//PanicAlertT("Last frame stored. Start timer now!");
+						Movie::cmp_startTimerFrame = Movie::cmp_curentBranchFrame;
+						memcpy(s_stored_frame, data, s_bitmap.biSizeImage);
+						return;
+					}
+				}
+
+				//Stop temp file on next frame if last frame is processed
+				if (s_last_key_old == s_last_key_temp || AVIStreamFindSample(s_stream_temp, s_last_key_temp, FIND_ANY) == samplePos)
+					s_stopTempFile = true;
+
+
+				void* memptr1 = s_uncompressed_frame;
+				memptr1 = static_cast<u8*>(memptr1) + sizeof(BITMAPINFOHEADER);
+
+				if (Movie::cmp_leftFinished)
+				{
+					memcpy(s_stored_frame, memptr1, s_bitmap.biSizeImage);
+
+					for (u64 currentRow = 0; currentRow < s_bitmap.biHeight; currentRow++)
+					{
+						currentByte += rowSize;
+
+						void* memptr = s_stored_frame;
+						const void* memptr2 = data;
+
+						memptr = static_cast<u8*>(memptr) + currentByte;
+						memptr2 = static_cast<const u8*>(memptr2) + currentByte;
+
+						memcpy(memptr, memptr2, rowSize);
+
+						currentByte += rowSize;
+					}
+				}
+				else if (Movie::cmp_rightFinished)
+				{
+					memcpy(s_stored_frame, memptr1, s_bitmap.biSizeImage);
+
+					//BITMAPINFOHEADER test;
+					//memset(&test, 0, sizeof(BITMAPINFOHEADER));
+					//memcpy(&test, s_uncompressed_frame, sizeof(BITMAPINFOHEADER));
+
+					for (u64 currentRow = 0; currentRow < s_bitmap.biHeight; currentRow++)
+					{
+						void* memptr = s_stored_frame;
+						const void* memptr2 = data;
+
+						memptr = static_cast<u8*>(memptr) + currentByte;
+						memptr2 = static_cast<const u8*>(memptr2) + currentByte;
+
+						memcpy(memptr, memptr2, rowSize);
+
+						currentByte += rowSize * 2;
+					}
+				}
+				else
+				{
+					memcpy(s_stored_frame, data, s_bitmap.biSizeImage);
+				}
+			}
+			else
+			{
+				memcpy(s_stored_frame, data, s_bitmap.biSizeImage);
+			}
+		}
 		else // pitch black frame
+		{
 			memset(s_stored_frame, 0, s_bitmap.biSizeImage);
+		}
 	}
 }
 
