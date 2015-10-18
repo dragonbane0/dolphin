@@ -257,10 +257,29 @@ void Init()
 		g_Channel[i].m_InHi.Hex = 0;
 		g_Channel[i].m_InLo.Hex = 0;
 
+		//Dragonbane: Added GBA for TASing
 		if (Movie::IsMovieActive())
-			AddDevice(Movie::IsUsingPad(i) ?  (Movie::IsUsingBongo(i) ? SIDEVICE_GC_TARUKONGA : SIDEVICE_GC_CONTROLLER) : SIDEVICE_NONE, i);
+		{
+			if (Movie::IsUsingPad(i))
+			{
+				if (Movie::IsUsingBongo(i))
+					AddDevice(SIDEVICE_GC_TARUKONGA, i);
+				else
+					AddDevice(SIDEVICE_GC_CONTROLLER, i);
+			}
+			else if (Movie::IsUsingGBA(i))
+			{
+				AddDevice(SIDEVICE_GC_GBA, i);
+			}
+			else
+			{
+				AddDevice(SIDEVICE_NONE, i);
+			}
+		}
 		else if (!NetPlay::IsNetPlayRunning())
+		{
 			AddDevice(SConfig::GetInstance().m_SIDevice[i], i);
+		}
 	}
 
 	g_Poll.Hex = 0;

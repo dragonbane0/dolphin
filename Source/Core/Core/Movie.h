@@ -150,10 +150,11 @@ struct DTMHeader
 	u8   memcards;
 	bool bClearSave;        // Create a new memory card when playing back a movie if true
 	u8   bongos;
+	u8   numGBAs;			//Dragonbane
 	bool bSyncGPU;
 	bool bNetPlay;
 	bool bPAL60;
-	u8   reserved[12];      // Padding for any new config options
+	u8   reserved[11];      // Padding for any new config options
 	u8   discChange[40];    // Name of iso file to switch to, for two disc games.
 	u8   revision[20];      // Git hash
 	u32  DSPiromHash;
@@ -213,6 +214,7 @@ bool IsNetPlayRecording();
 bool IsUsingPad(int controller);
 bool IsUsingWiimote(int wiimote);
 bool IsUsingBongo(int controller);
+bool IsUsingGBA(int controller); //Dragonbane
 void ChangePads(bool instantly = false);
 void ChangeWiiPads(bool instantly = false);
 

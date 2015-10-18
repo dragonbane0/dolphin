@@ -280,15 +280,15 @@ void GBASockServer::ClockSync()
 void GBASockServer::Send(u8* si_buffer)
 {
 	if (!client)
-		if (!isEnabled)
-			if (!GetAvailableSock(client))
-				return;
+		if (!GetAvailableSock(client))
+			return;
 
 	for (int i = 0; i < 5; i++)
 		send_data[i] = si_buffer[i ^ 3];
 
 	cmd = (u8)send_data[0];
 
+	//Logging of send data
 	/*
 	std::string output;
 
@@ -303,14 +303,8 @@ void GBASockServer::Send(u8* si_buffer)
 	else if (cmd == CMD_RESET)
 	output = StringFromFormat("\n\n %d: RESET (ff) [> %02x]\n", Movie::g_currentFrame, (u8)send_data[4]);
 
-
 	outputFile.WriteBytes(output.data(), output.size());
 	*/
-
-	//Block connection if fake tuner is engaged
-	if (isEnabled)
-		return;
-
 
 #ifdef _DEBUG
 	NOTICE_LOG(SERIALINTERFACE, "%01d cmd %02x [> %02x%02x%02x%02x]",
@@ -337,7 +331,118 @@ void GBASockServer::Send(u8* si_buffer)
 
 int GBASockServer::Receive(u8* si_buffer)
 {
+	if (!client)
+		if (!GetAvailableSock(client))
+			return 5;
+
 	size_t num_received = 0;
+
+	u64 transferTime = GetTransferTime((u8)send_data[0]);
+	bool block = (CoreTiming::GetTicks() - time_cmd_sent) > transferTime;
+	if (cmd == CMD_STATUS && !booted)
+		block = false;
+
+	if (block)
+	{
+		sf::SocketSelector Selector;
+		Selector.add(*client);
+		Selector.wait(sf::milliseconds(1000));
+	}
+
+	sf::Socket::Status recv_stat = client->receive(recv_data, sizeof(recv_data), num_received);
+	if (recv_stat == sf::Socket::Disconnected)
+	{
+		Disconnect();
+		return 5;
+	}
+
+	if (recv_stat == sf::Socket::NotReady)
+		num_received = 0;
+
+	if (num_received > sizeof(recv_data))
+		num_received = sizeof(recv_data);
+
+	if (num_received > 0)
+	{
+		//Logging of received data
+		/*
+		std::string output;
+
+		if (num_received == 5)
+		output = StringFromFormat("[< %02x %02x %02x %02x %02x]",
+		(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2],
+		(u8)recv_data[3], (u8)recv_data[4]);
+		else if (num_received == 4)
+		output = StringFromFormat("[< %02x %02x %02x %02x]",
+		(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2],
+		(u8)recv_data[3]);
+		else if (num_received == 3)
+		output = StringFromFormat("[< %02x %02x %02x]",
+		(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2]);
+		else if (num_received == 2)
+		output = StringFromFormat("[< %02x %02x]",
+		(u8)recv_data[0], (u8)recv_data[1]);
+		else if (num_received == 1)
+		output = StringFromFormat("[< %02x]",
+		(u8)recv_data[0]);
+
+		outputFile.WriteBytes(output.data(), output.size());
+		*/
+
+		#ifdef _DEBUG
+		if ((u8)send_data[0] == 0x00 || (u8)send_data[0] == 0xff)
+		{
+			WARN_LOG(SERIALINTERFACE, "%01d                              [< %02x%02x%02x%02x%02x] (%d)",
+				device_number,
+				(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2],
+				(u8)recv_data[3], (u8)recv_data[4],
+				num_received);
+		}
+		else
+		{
+			ERROR_LOG(SERIALINTERFACE, "%01d                              [< %02x%02x%02x%02x%02x] (%d)",
+				device_number,
+				(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2],
+				(u8)recv_data[3], (u8)recv_data[4],
+				num_received);
+		}
+		#endif
+
+		for (int i = 0; i < 5; i++)
+			si_buffer[i ^ 3] = recv_data[i];
+	}
+
+	return (int)num_received;
+}
+
+
+// Dragonbane: Fake GBA
+int GBASockServer::CreateFakeResponse(u8* si_buffer)
+{
+	for (int i = 0; i < 5; i++)
+		send_data[i] = si_buffer[i ^ 3];
+
+	cmd = (u8)send_data[0];
+
+	size_t num_received = 0;
+
+	//Logging of send data
+	/*
+	std::string output;
+
+	if (cmd == CMD_STATUS)
+	output = StringFromFormat("\n\n %d: STATUS (00) [> %02x]\n", Movie::g_currentFrame, (u8)send_data[4]);
+	else if (cmd == CMD_READ)
+	output = StringFromFormat("\n\n %d: READ (14) [> %02x]\n", Movie::g_currentFrame, (u8)send_data[4]);
+	else if (cmd == CMD_WRITE)
+	output = StringFromFormat("\n\n %d: WRITE (15) [> %02x %02x %02x %02x]\n", Movie::g_currentFrame,
+	(u8)send_data[1], (u8)send_data[2],
+	(u8)send_data[3], (u8)send_data[4]);
+	else if (cmd == CMD_RESET)
+	output = StringFromFormat("\n\n %d: RESET (ff) [> %02x]\n", Movie::g_currentFrame, (u8)send_data[4]);
+
+	outputFile.WriteBytes(output.data(), output.size());
+	*/
 
 	/*
 	if (!nextRNGBlocking)
@@ -445,33 +550,6 @@ int GBASockServer::Receive(u8* si_buffer)
 		}
 	}
 
-
-	if (Movie::tunerExecuteID == 18) //Activate fake GBA
-	{
-		isEnabled = true;
-		isConnecting = false;
-		isConnected = true;
-
-		actionPhase = 0;
-		actionDataMode = 0;
-		Movie::tunerExecuteID = 0;
-		Movie::tunerStatus = 1;
-	}
-	else if (Movie::tunerExecuteID == 19) //Deactivate fake GBA
-	{
-		isEnabled = false;
-		isConnecting = false;
-		isConnected = false;
-
-		Movie::tunerExecuteID = 0;
-		Movie::tunerStatus = 0;
-	}
-
-
-	if (!client)
-		if (!isEnabled)
-			if (!GetAvailableSock(client))
-				return 5;
 
 	if (isConnected)
 	{
@@ -3854,150 +3932,82 @@ int GBASockServer::Receive(u8* si_buffer)
 		*/
 	}
 
-#ifdef _DEBUG
-	if ((u8)send_data[0] == 0x00 || (u8)send_data[0] == 0xff)
-	{
-		WARN_LOG(SERIALINTERFACE, "%01d                              [< %02x%02x%02x%02x%02x] (%d)",
-			device_number,
-			(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2],
-			(u8)recv_data[3], (u8)recv_data[4],
-			num_received);
-	}
+	//Logging of received data
+	/*
+	std::string output;
+
+	if (num_received == 5)
+	output = StringFromFormat("[< %02x %02x %02x %02x %02x]",
+	(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2],
+	(u8)recv_data[3], (u8)recv_data[4]);
+	else if (num_received == 4)
+	output = StringFromFormat("[< %02x %02x %02x %02x]",
+	(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2],
+	(u8)recv_data[3]);
+	else if (num_received == 3)
+	output = StringFromFormat("[< %02x %02x %02x]",
+	(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2]);
+	else if (num_received == 2)
+	output = StringFromFormat("[< %02x %02x]",
+	(u8)recv_data[0], (u8)recv_data[1]);
+	else if (num_received == 1)
+	output = StringFromFormat("[< %02x]",
+	(u8)recv_data[0]);
 	else
+	output = StringFromFormat("[< N/A ]");
+
+	outputFile.WriteBytes(output.data(), output.size());
+	*/
+
+	if (num_received == 0)
 	{
-		ERROR_LOG(SERIALINTERFACE, "%01d                              [< %02x%02x%02x%02x%02x] (%d)",
-			device_number,
-			(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2],
-			(u8)recv_data[3], (u8)recv_data[4],
-			num_received);
-	}
-#endif
-
-	if (isEnabled)
-	{
-		/*
-		std::string output;
-
-		if (num_received == 5)
-		output = StringFromFormat("[< %02x %02x %02x %02x %02x]",
-		(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2],
-		(u8)recv_data[3], (u8)recv_data[4]);
-		else if (num_received == 4)
-		output = StringFromFormat("[< %02x %02x %02x %02x]",
-		(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2],
-		(u8)recv_data[3]);
-		else if (num_received == 3)
-		output = StringFromFormat("[< %02x %02x %02x]",
-		(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2]);
-		else if (num_received == 2)
-		output = StringFromFormat("[< %02x %02x]",
-		(u8)recv_data[0], (u8)recv_data[1]);
-		else if (num_received == 1)
-		output = StringFromFormat("[< %02x]",
-		(u8)recv_data[0]);
-		else
-		output = StringFromFormat("[< N/A ]");
-
-		outputFile.WriteBytes(output.data(), output.size());
-		*/
-
-		for (int i = 0; i < 5; i++)
-			si_buffer[i ^ 3] = recv_data[i];
-
-
-		if (num_received == 0)
-		{
-			PanicAlertT("No arguments error! isConnected: %i, isConnecting: %i, idlePhase: %i", isConnected, isConnecting, idlePhase);
-			return 5;
-		}
-
-		return (int)num_received;
-	}
-
-
-
-	u64 transferTime = GetTransferTime((u8)send_data[0]);
-	bool block = (CoreTiming::GetTicks() - time_cmd_sent) > transferTime;
-	if (cmd == CMD_STATUS && !booted)
-		block = false;
-
-	if (block)
-	{
-		sf::SocketSelector Selector;
-		Selector.add(*client);
-		Selector.wait(sf::milliseconds(1000));
-	}
-
-	sf::Socket::Status recv_stat = client->receive(recv_data, sizeof(recv_data), num_received);
-	if (recv_stat == sf::Socket::Disconnected)
-	{
-		Disconnect();
+		PanicAlertT("No arguments error! isConnected: %i, isConnecting: %i, idlePhase: %i", isConnected, isConnecting, idlePhase);
 		return 5;
 	}
 
-	if (recv_stat == sf::Socket::NotReady)
-		num_received = 0;
-
-	if (num_received > sizeof(recv_data))
-		num_received = sizeof(recv_data);
-
-	if (num_received > 0)
-	{
-		/*
-		std::string output;
-
-		if (num_received == 5)
-		output = StringFromFormat("[< %02x %02x %02x %02x %02x]",
-		(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2],
-		(u8)recv_data[3], (u8)recv_data[4]);
-		else if (num_received == 4)
-		output = StringFromFormat("[< %02x %02x %02x %02x]",
-		(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2],
-		(u8)recv_data[3]);
-		else if (num_received == 3)
-		output = StringFromFormat("[< %02x %02x %02x]",
-		(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2]);
-		else if (num_received == 2)
-		output = StringFromFormat("[< %02x %02x]",
-		(u8)recv_data[0], (u8)recv_data[1]);
-		else if (num_received == 1)
-		output = StringFromFormat("[< %02x]",
-		(u8)recv_data[0]);
-
-		outputFile.WriteBytes(output.data(), output.size());
-		*/
-
-#ifdef _DEBUG
-		if ((u8)send_data[0] == 0x00 || (u8)send_data[0] == 0xff)
-		{
-			WARN_LOG(SERIALINTERFACE, "%01d                              [< %02x%02x%02x%02x%02x] (%d)",
-				device_number,
-				(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2],
-				(u8)recv_data[3], (u8)recv_data[4],
-				num_received);
-		}
-		else
-		{
-			ERROR_LOG(SERIALINTERFACE, "%01d                              [< %02x%02x%02x%02x%02x] (%d)",
-				device_number,
-				(u8)recv_data[0], (u8)recv_data[1], (u8)recv_data[2],
-				(u8)recv_data[3], (u8)recv_data[4],
-				num_received);
-		}
-#endif
-
-		for (int i = 0; i < 5; i++)
-			si_buffer[i ^ 3] = recv_data[i];
-	}
+	for (int i = 0; i < 5; i++)
+		si_buffer[i ^ 3] = recv_data[i];
 
 	return (int)num_received;
 }
+
 
 CSIDevice_GBA::CSIDevice_GBA(SIDevices _device, int _iDeviceNumber)
 	: ISIDevice(_device, _iDeviceNumber)
 	, GBASockServer(_iDeviceNumber)
 {
 	waiting_for_response = false;
+
+
+	//Connection variables
+	isEnabled = true;
+	isConnecting = true;
+	idlePhase = true;
+
+	globalConnectionPhase = 0;
+	localConnectionPhase = 0;
+	finalDataGlobalPhase = 0;
+
+	//Action variables
+	isConnected = false;
+	tingleRNG = false;
+	inLoading = false;
+
+	actionPhase = 0;
+	actionDataMode = 0;
+	frameTarget = 0;
+
+	//Report variables
+	cyclesPerFrame = 0;
+	totalActionCyclesRequired = 0;
+	executionTime = 0;
+	reportActive = false;
+	currentFrame = 0;
+	reportedActionID = 0;
+
+	//Movie Stuff
+	Movie::tunerStatus = 1;
+	Movie::tunerExecuteID = 0;
 }
 
 CSIDevice_GBA::~CSIDevice_GBA()
@@ -4007,43 +4017,112 @@ CSIDevice_GBA::~CSIDevice_GBA()
 
 int CSIDevice_GBA::RunBuffer(u8* _pBuffer, int _iLength)
 {
-	if (!waiting_for_response)
+	//Handle Activation/Deactivation
+	if (Movie::tunerExecuteID == 18) //Activate fake GBA
 	{
-		for (int i = 0; i < 5; i++)
-			send_data[i] = _pBuffer[i ^ 3];
+		isEnabled = true;
+		isConnecting = false;
+		isConnected = true;
 
 		num_data_received = 0;
-		//ClockSync();
-		Send(_pBuffer);
-		timestamp_sent = CoreTiming::GetTicks();
-		waiting_for_response = true;
-	}
-
-	if (waiting_for_response && num_data_received == 0)
-	{
-		num_data_received = Receive(_pBuffer);
-	}
-
-	/*if ((GetTransferTime(send_data[0])) > (int)(CoreTiming::GetTicks() - timestamp_sent))
-	{
-	return 0;
-	}
-	else
-	{*/
-	if (num_data_received != 0)
 		waiting_for_response = false;
-	return num_data_received;
-	//}
+
+		actionPhase = 0;
+		actionDataMode = 0;
+		Movie::tunerExecuteID = 0;
+		Movie::tunerStatus = 1;
+	}
+	else if (Movie::tunerExecuteID == 19) //Deactivate fake GBA
+	{
+		isEnabled = false;
+		isConnecting = false;
+		isConnected = false;
+
+		num_data_received = 0;
+		waiting_for_response = false;
+
+		Movie::tunerExecuteID = 0;
+		Movie::tunerStatus = 0;
+	}
+
+
+	if (isEnabled) //Fake GBA
+	{
+		//Connection Phase needs to be slower
+		if (!isConnected)
+		{
+			if (!waiting_for_response)
+			{
+				for (int i = 0; i < 5; i++)
+					send_data[i] = _pBuffer[i ^ 3];
+
+				num_data_received = 0;
+				timestamp_sent = CoreTiming::GetTicks();
+				waiting_for_response = true;
+			}
+
+			if (waiting_for_response && num_data_received == 0)
+			{
+				num_data_received = CreateFakeResponse(_pBuffer);
+			}
+
+			if ((GetTransferTime(send_data[0])) > (int)(CoreTiming::GetTicks() - timestamp_sent))
+			{
+				return 0;
+			}
+			else
+			{
+				if (num_data_received != 0)
+					waiting_for_response = false;
+				return num_data_received;
+			}
+		}
+		else //Normal Action Phase
+		{
+			num_data_received = 0;
+			waiting_for_response = false;
+
+			num_data_received = CreateFakeResponse(_pBuffer);
+
+			return num_data_received;
+		}
+		
+	}
+	else //Real GBA
+	{
+		if (!waiting_for_response)
+		{
+			for (int i = 0; i < 5; i++)
+				send_data[i] = _pBuffer[i ^ 3];
+
+			num_data_received = 0;
+			ClockSync();
+			Send(_pBuffer);
+			timestamp_sent = CoreTiming::GetTicks();
+			waiting_for_response = true;
+		}
+
+		if (waiting_for_response && num_data_received == 0)
+		{
+			num_data_received = Receive(_pBuffer);
+		}
+
+		if ((GetTransferTime(send_data[0])) > (int)(CoreTiming::GetTicks() - timestamp_sent))
+		{
+			return 0;
+		}
+		else
+		{
+			if (num_data_received != 0)
+				waiting_for_response = false;
+			return num_data_received;
+		}
+	}
 }
 
 int CSIDevice_GBA::TransferInterval()
 {
-	int interval = GetTransferTime(send_data[0]);
-
-	if (interval == -1)
-		interval = 0;
-
-	return interval;
+	return GetTransferTime(send_data[0]);
 }
 
 // Dragonbane: Savestate support
@@ -4068,4 +4147,10 @@ void CSIDevice_GBA::DoState(PointerWrap& p)
 	p.Do(tingleRNG);
 	p.Do(actionPhase);
 	p.Do(actionDataMode);
+
+	//Connection Variables
+	//p.Do(waiting_for_response);
+	//p.Do(send_data);
+	//p.Do(num_data_received);
+	//p.Do(timestamp_sent);	
 }

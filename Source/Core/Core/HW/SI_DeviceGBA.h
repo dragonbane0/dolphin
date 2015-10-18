@@ -29,6 +29,9 @@ public:
 	void Send(u8* si_buffer);
 	int Receive(u8* si_buffer);
 
+	//Dragonbane: Fake GBA
+	int CreateFakeResponse(u8* si_buffer);
+
 private:
 	std::unique_ptr<sf::TcpSocket> client;
 	std::unique_ptr<sf::TcpSocket> clock_sync;
