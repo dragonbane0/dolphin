@@ -868,7 +868,7 @@ std::string GetInputDisplay()
 	}
 
 	//TWW Song Stone Debug
-	if (!gameID.compare("GZLJ01"))
+	if (SConfig::GetInstance().m_ShowTWWDebug && !gameID.compare("GZLJ01"))
 	{
 		inputDisplay.append("\n");
 

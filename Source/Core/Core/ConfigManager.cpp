@@ -365,6 +365,7 @@ void SConfig::SaveMovieSettings(IniFile& ini)
 	movie->Set("Author", m_strMovieAuthor);
 	movie->Set("DumpFrames", m_DumpFrames);
 	movie->Set("ShowInputDisplay", m_ShowInputDisplay);
+	movie->Set("ShowTWWDebugInfo", m_ShowTWWDebug);
 }
 
 void SConfig::SaveDSPSettings(IniFile& ini)
@@ -607,6 +608,7 @@ void SConfig::LoadMovieSettings(IniFile& ini)
 	movie->Get("Author", &m_strMovieAuthor, "");
 	movie->Get("DumpFrames", &m_DumpFrames, false);
 	movie->Get("ShowInputDisplay", &m_ShowInputDisplay, false);
+	movie->Get("ShowTWWDebugInfo", &m_ShowTWWDebug, false);
 }
 
 void SConfig::LoadDSPSettings(IniFile& ini)

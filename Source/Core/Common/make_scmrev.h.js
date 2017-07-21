@@ -76,7 +76,7 @@ var out_contents =
 	"#define SCM_REV_STR \"" + revision + "\"\n" +
 	"#define SCM_DESC_STR \"" + describe + "\"\n" +
 	"#define SCM_BRANCH_STR \"" + branch + "\"\n" +
-	"#define SCM_IS_MASTER " + isMaster + "\n";
+	"#define SCM_IS_MASTER " + isStable + "\n";
 
 // check if file needs updating
 if (out_contents == GetFileContents(outfile))

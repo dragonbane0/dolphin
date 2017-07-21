@@ -101,6 +101,7 @@ struct SConfig : NonCopyable
 	unsigned int m_FrameSkip;
 	bool m_DumpFrames;
 	bool m_ShowInputDisplay;
+	bool m_ShowTWWDebug;
 
 	// DSP settings
 	bool m_DSPEnableJIT;

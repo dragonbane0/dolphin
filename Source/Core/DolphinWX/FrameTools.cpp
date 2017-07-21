@@ -238,6 +238,8 @@ wxMenuBar* CFrame::CreateMenu()
 	movieMenu->Check(IDM_RECORD_READ_ONLY, true);
 	movieMenu->AppendCheckItem(IDM_SHOW_INPUT_DISPLAY, _("Show Input/Info Display"));
 	movieMenu->Check(IDM_SHOW_INPUT_DISPLAY, SConfig::GetInstance().m_ShowInputDisplay);
+	movieMenu->AppendCheckItem(IDM_SHOW_TWW_DEBUG, _("Show TWW Memory Debug Info"));
+	movieMenu->Check(IDM_SHOW_TWW_DEBUG, SConfig::GetInstance().m_ShowTWWDebug);
 	movieMenu->AppendSeparator();
 	movieMenu->AppendCheckItem(IDM_TOGGLE_DUMP_FRAMES, _("Dump Frames"));
 	movieMenu->Check(IDM_TOGGLE_DUMP_FRAMES, SConfig::GetInstance().m_DumpFrames);
@@ -868,6 +870,12 @@ void CFrame::OnShowFrameCount(wxCommandEvent& WXUNUSED (event))
 void CFrame::OnShowInputDisplay(wxCommandEvent& WXUNUSED(event))
 {
 	SConfig::GetInstance().m_ShowInputDisplay = !SConfig::GetInstance().m_ShowInputDisplay;
+	SConfig::GetInstance().SaveSettings();
+}
+
+void CFrame::OnShowTWWDebug(wxCommandEvent& WXUNUSED(event))
+{
+	SConfig::GetInstance().m_ShowTWWDebug = !SConfig::GetInstance().m_ShowTWWDebug;
 	SConfig::GetInstance().SaveSettings();
 }
 
