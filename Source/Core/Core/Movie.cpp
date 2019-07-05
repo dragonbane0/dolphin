@@ -56,7 +56,7 @@ namespace { Common::Flag pipe_server_running; }
 #define READING_STATE 1 
 #define WRITING_STATE 2 
 #define PIPE_TIMEOUT 5000
-#define BUFSIZE 4096
+#define BUFSIZE 8192
 
 HANDLE hEvent;
 HANDLE hPipe;
@@ -385,6 +385,7 @@ VOID Pipe_GetResponseToRequest()
 	//0 = Request was invalid
 	//1 = Wind Waker not running
 	//2 = Sending ACT Space
+	//3 = Sending ACT List
 
 	if (request == "ACT Memory")
 	{
@@ -448,6 +449,43 @@ VOID Pipe_GetResponseToRequest()
 
 			cbToWrite = (slotCountBottom * 12) + 3;
 		}
+	}
+	else if (request == "ACT List") {
+		chReply[0] = 0x3; //ACT List is being send
+
+		u8* actBuf = new u8[BUFSIZE];
+		memset(actBuf, 0, BUFSIZE);
+
+		u16 slotCountMax = 64;
+		u16 currentSlot = 0;
+
+		u32 startAddress = 0x3D40BC;
+
+		while (currentSlot < slotCountMax)
+		{
+			u32 pos = startAddress + (currentSlot * 36);
+			u32 actBufPos = currentSlot * 32;
+
+			std::string name = Memory::Read_String(pos, 14);
+			u16 instanceCount = Memory::Read_U16(pos + 14);
+			u32 loadingPtr = Memory::Read_U32(pos + 16);
+			u32 instancePtr = Memory::Read_U32(pos + 20);
+			u32 dataPtr = Memory::Read_U32(pos + 28);
+			u32 data2Ptr = Memory::Read_U32(pos + 32);
+
+			memcpy(actBuf + actBufPos, name.c_str(), 14);
+			memcpy(actBuf + (actBufPos + 14), &instanceCount, 2);
+			memcpy(actBuf + (actBufPos + 16), &loadingPtr, 4);
+			memcpy(actBuf + (actBufPos + 20), &instancePtr, 4);
+			memcpy(actBuf + (actBufPos + 24), &dataPtr, 4);
+			memcpy(actBuf + (actBufPos + 28), &data2Ptr, 4);
+
+			currentSlot++;
+		}
+
+		memcpy(chReply + 1, actBuf, slotCountMax * 32); //Write the slot address data stream
+
+		cbToWrite = (slotCountMax * 32) + 1;
 	}
 	else //Invalid Request
 	{
