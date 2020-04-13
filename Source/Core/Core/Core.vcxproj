@@ -438,6 +438,7 @@
     <ClInclude Include="PowerPC\Jit64\Jit64_Tables.h" />
     <ClInclude Include="PowerPC\Jit64\JitAsm.h" />
     <ClInclude Include="PowerPC\Jit64\JitRegCache.h" />
+    <ClInclude Include="PowerPC\JitArmCommon\BackPatch.h" />
     <ClInclude Include="PowerPC\JitILCommon\IR.h" />
     <ClInclude Include="PowerPC\JitILCommon\JitILBase.h" />
     <ClInclude Include="PowerPC\Jit64Common\Jit64AsmCommon.h" />

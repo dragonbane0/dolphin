@@ -139,6 +139,9 @@
     <Filter Include="LUA">
       <UniqueIdentifier>{ec740a32-c5ee-4699-a911-49eefc8ae232}</UniqueIdentifier>
     </Filter>
+    <Filter Include="PowerPC\JitArmCommon">
+      <UniqueIdentifier>{7e1e5063-f48e-4630-a125-cb4acb4be8a2}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BootManager.cpp" />
@@ -1241,6 +1244,9 @@
     <ClInclude Include="PowerPC\Jit64Common\Jit64AsmCommon.h" />
     <ClInclude Include="LUA\Lua.h">
       <Filter>LUA</Filter>
+    </ClInclude>
+    <ClInclude Include="PowerPC\JitArmCommon\BackPatch.h">
+      <Filter>PowerPC\JitArmCommon</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

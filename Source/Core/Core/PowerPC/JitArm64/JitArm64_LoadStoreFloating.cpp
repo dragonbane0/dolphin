@@ -193,8 +193,8 @@ void JitArm64::lfXX(UGeckoInstruction inst)
 		ABI_PushRegisters(regs_in_use);
 		m_float_emit.ABI_PushRegisters(fprs_in_use);
 		EmitBackpatchRoutine(this, flags,
-			SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem,
-			SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem,
+			jo.fastmem,
+			jo.fastmem,
 			VD, XA);
 		m_float_emit.ABI_PopRegisters(fprs_in_use, fpr_ignore_mask);
 		ABI_PopRegisters(regs_in_use);
@@ -420,8 +420,8 @@ void JitArm64::stfXX(UGeckoInstruction inst)
 		ABI_PushRegisters(regs_in_use);
 		m_float_emit.ABI_PushRegisters(fprs_in_use);
 		EmitBackpatchRoutine(this, flags,
-			SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem,
-			SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem,
+			jo.fastmem,
+			jo.fastmem,
 			V0, XA);
 		m_float_emit.ABI_PopRegisters(fprs_in_use);
 		ABI_PopRegisters(regs_in_use);

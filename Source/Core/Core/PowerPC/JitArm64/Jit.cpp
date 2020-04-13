@@ -17,6 +17,7 @@ void JitArm64::Init()
 	AllocCodeSpace(CODE_SIZE);
 	jo.enableBlocklink = true;
 	jo.optimizeGatherPipe = true;
+	UpdateMemoryOptions();
 	gpr.Init(this);
 	fpr.Init(this);
 
@@ -34,6 +35,7 @@ void JitArm64::ClearCache()
 {
 	ClearCodeSpace();
 	blocks.Clear();
+	UpdateMemoryOptions();
 }
 
 void JitArm64::Shutdown()
@@ -300,7 +302,7 @@ const u8* JitArm64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer *code_buf, JitB
 
 		if (!ops[i].skip)
 		{
-			if (js.memcheck && (opinfo->flags & FL_USE_FPU))
+			if (jo.memcheck && (opinfo->flags & FL_USE_FPU))
 			{
 				// Don't do this yet
 				BRK(0x7777);
@@ -314,7 +316,7 @@ const u8* JitArm64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer *code_buf, JitB
 			for (int j : ~ops[i].fprInUse)
 				fpr.StoreRegister(j);
 
-			if (js.memcheck && (opinfo->flags & FL_LOADSTORE))
+			if (jo.memcheck && (opinfo->flags & FL_LOADSTORE))
 			{
 				// Don't do this yet
 				BRK(0x666);

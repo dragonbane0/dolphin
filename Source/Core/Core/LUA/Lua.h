@@ -45,7 +45,7 @@ namespace Lua
 	void LoadScript(std::string fileName);
 	void TerminateScript(std::string fileName);
 	bool IsScriptRunning(std::string fileName);
-	void UpdateScripts(GCPadStatus* PadStatus);
+	void UpdateScripts(u8* PadStatus, bool isWii);
 
 	void UpdateSuperswimScript(GCPadStatus* PadStatus);
 

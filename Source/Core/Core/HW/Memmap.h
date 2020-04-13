@@ -9,11 +9,6 @@
 #include "Common/CommonFuncs.h"
 #include "Common/CommonTypes.h"
 
-// Enable memory checks in the Debug/DebugFast builds, but NOT in release
-#if defined(_DEBUG) || defined(DEBUGFAST)
-	#define ENABLE_MEM_CHECK
-#endif
-
 // Global declarations
 class PointerWrap;
 namespace MMIO { class Mapping; }
@@ -71,7 +66,6 @@ void Shutdown();
 void DoState(PointerWrap &p);
 
 void Clear();
-bool AreMemoryBreakpointsActivated();
 
 // ONLY for use by GUI
 u8 ReadUnchecked_U8(const u32 address);

@@ -436,10 +436,21 @@ namespace Lua
 	static int currScriptID;
 
 	static GCPadStatus PadLocal;
+	static wm_buttons PadWii;
 
 	const int m_gc_pad_buttons_bitmask[12] = {
 		PAD_BUTTON_DOWN, PAD_BUTTON_UP, PAD_BUTTON_LEFT, PAD_BUTTON_RIGHT, PAD_BUTTON_A, PAD_BUTTON_B,
 		PAD_BUTTON_X, PAD_BUTTON_Y, PAD_TRIGGER_Z, PAD_TRIGGER_L, PAD_TRIGGER_R, PAD_BUTTON_START
+	};
+
+	const u16 m_wii_pad_buttons_bitmask[7] = {		
+		WiimoteEmu::Wiimote::BUTTON_A,
+		WiimoteEmu::Wiimote::BUTTON_B,
+		WiimoteEmu::Wiimote::BUTTON_ONE,
+		WiimoteEmu::Wiimote::BUTTON_TWO,
+		WiimoteEmu::Wiimote::BUTTON_MINUS,
+		WiimoteEmu::Wiimote::BUTTON_PLUS,
+		WiimoteEmu::Wiimote::BUTTON_HOME
 	};
 
 	//LUA Savestate Stuff
@@ -505,7 +516,15 @@ namespace Lua
 		else if (!strcmp(button, "D-Right"))
 		{
 			PadLocal.button |= m_gc_pad_buttons_bitmask[3];
-		}		
+		}
+		else if (!strcmp(button, "Wii_A")) {
+			PadWii.a = 0xFF;
+			PadWii.hex |= m_wii_pad_buttons_bitmask[0];
+		}
+		else if (!strcmp(button, "Wii_B")) {
+			PadWii.b = 0xFF;
+			PadWii.hex |= m_wii_pad_buttons_bitmask[1];
+		}
 	}
 	void iReleaseButton(const char* button)
 	{
@@ -560,6 +579,14 @@ namespace Lua
 		else if (!strcmp(button, "D-Right"))
 		{
 			PadLocal.button &= ~m_gc_pad_buttons_bitmask[3];
+		}
+		else if (!strcmp(button, "Wii_A")) {
+			PadWii.a = 0x00;
+			PadWii.hex &= ~m_wii_pad_buttons_bitmask[0];
+		}
+		else if (!strcmp(button, "Wii_B")) {
+			PadWii.b = 0x00;
+			PadWii.hex &= ~m_wii_pad_buttons_bitmask[1];
 		}
 	}
 
@@ -692,6 +719,7 @@ namespace Lua
 	{
 		//For Pad manipulation
 		memset(&PadLocal, 0, sizeof(PadLocal));
+		memset(&PadWii, 0, sizeof(PadWii));
 
 		//Auto launch Scripts that start with _
 		CFileSearch::XStringVector Directory;
@@ -771,13 +799,16 @@ namespace Lua
 
 
 	//Called every input frame (60 times per second in TP)
-	void UpdateScripts(GCPadStatus* PadStatus)
+	void UpdateScripts(u8* PadStatus, bool isWii)
 	{
 		if (!Core::IsRunningAndStarted())
 			return;
 
 		//Update Local Pad
-		PadLocal = *PadStatus;
+		if (!isWii)
+			PadLocal = *((GCPadStatus*)PadStatus);
+		else
+			PadWii = *((wm_buttons*)PadStatus);
 
 		//Iterate through all the loaded LUA Scripts
 		int n = 0;
@@ -920,7 +951,10 @@ namespace Lua
 		}
 
 		//Send changed Pad back
-		*PadStatus = PadLocal;
+		if (!isWii)
+			*((GCPadStatus*)PadStatus) = PadLocal;
+		else
+			*((wm_buttons*)PadStatus) = PadWii;
 	}
 
 	//Superswim Script

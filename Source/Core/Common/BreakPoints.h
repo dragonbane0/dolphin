@@ -40,7 +40,7 @@ struct TMemCheck
 
 	u32 numHits;
 
-	void Action(DebugInterface *dbg_interface, u32 _iValue, u32 addr,
+	bool Action(DebugInterface *dbg_interface, u32 _iValue, u32 addr,
 	            bool write, int size, u32 pc);
 };
 
@@ -105,6 +105,8 @@ public:
 	void Remove(u32 _Address);
 
 	void Clear() { m_MemChecks.clear(); }
+
+	bool HasAny() const { return !m_MemChecks.empty(); }
 };
 
 class Watches

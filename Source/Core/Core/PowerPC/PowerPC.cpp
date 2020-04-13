@@ -378,6 +378,10 @@ void CheckExceptions()
 		INFO_LOG(POWERPC, "EXCEPTION_FPU_UNAVAILABLE");
 		Common::AtomicAnd(ppcState.Exceptions, ~EXCEPTION_FPU_UNAVAILABLE);
 	}
+	else if (exceptions & EXCEPTION_FAKE_MEMCHECK_HIT)
+	{
+		ppcState.Exceptions &= ~EXCEPTION_DSI & ~EXCEPTION_FAKE_MEMCHECK_HIT;
+	}
 	else if (exceptions & EXCEPTION_DSI)
 	{
 		SRR0 = PC;

@@ -135,7 +135,7 @@ GCPadStatus CSIDevice_GCController::GetPadStatus()
 	if (!Movie::IsPlayingInput())
 	{
 		Lua::UpdateSuperswimScript(&PadStatus); //Superswim Script needs authority over PadStatus
-		Lua::UpdateScripts(&PadStatus);
+		Lua::UpdateScripts((u8*)&PadStatus, false);
 	}
 
 	Movie::CallGCInputManip(&PadStatus, ISIDevice::m_iDeviceNumber);

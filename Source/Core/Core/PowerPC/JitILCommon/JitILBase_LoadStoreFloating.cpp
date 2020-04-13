@@ -13,7 +13,7 @@ void JitILBase::lfs(UGeckoInstruction inst)
 {
 	INSTRUCTION_START
 	JITDISABLE(bJITLoadStoreFloatingOff);
-	FALLBACK_IF(js.memcheck);
+	FALLBACK_IF(jo.memcheck);
 
 	IREmitter::InstLoc addr = ibuild.EmitIntConst(inst.SIMM_16), val;
 
@@ -30,7 +30,7 @@ void JitILBase::lfd(UGeckoInstruction inst)
 {
 	INSTRUCTION_START
 	JITDISABLE(bJITLoadStoreFloatingOff);
-	FALLBACK_IF(js.memcheck);
+	FALLBACK_IF(jo.memcheck);
 
 	IREmitter::InstLoc addr = ibuild.EmitIntConst(inst.SIMM_16), val;
 
@@ -47,7 +47,7 @@ void JitILBase::stfd(UGeckoInstruction inst)
 {
 	INSTRUCTION_START
 	JITDISABLE(bJITLoadStoreFloatingOff);
-	FALLBACK_IF(js.memcheck);
+	FALLBACK_IF(jo.memcheck);
 
 	IREmitter::InstLoc addr = ibuild.EmitIntConst(inst.SIMM_16);
 	IREmitter::InstLoc val  = ibuild.EmitLoadFReg(inst.RS);
@@ -65,7 +65,7 @@ void JitILBase::stfs(UGeckoInstruction inst)
 {
 	INSTRUCTION_START
 	JITDISABLE(bJITLoadStoreFloatingOff);
-	FALLBACK_IF(js.memcheck);
+	FALLBACK_IF(jo.memcheck);
 
 	IREmitter::InstLoc addr = ibuild.EmitIntConst(inst.SIMM_16);
 	IREmitter::InstLoc val  = ibuild.EmitLoadFReg(inst.RS);
@@ -84,7 +84,7 @@ void JitILBase::stfsx(UGeckoInstruction inst)
 {
 	INSTRUCTION_START
 	JITDISABLE(bJITLoadStoreFloatingOff);
-	FALLBACK_IF(js.memcheck);
+	FALLBACK_IF(jo.memcheck);
 
 	IREmitter::InstLoc addr = ibuild.EmitLoadGReg(inst.RB);
 	IREmitter::InstLoc val  = ibuild.EmitLoadFReg(inst.RS);
@@ -101,7 +101,7 @@ void JitILBase::lfsx(UGeckoInstruction inst)
 {
 	INSTRUCTION_START
 	JITDISABLE(bJITLoadStoreFloatingOff);
-	FALLBACK_IF(js.memcheck);
+	FALLBACK_IF(jo.memcheck);
 
 	IREmitter::InstLoc addr = ibuild.EmitLoadGReg(inst.RB), val;
 

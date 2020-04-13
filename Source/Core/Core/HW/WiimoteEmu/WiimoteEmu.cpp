@@ -10,6 +10,7 @@
 #include "Core/ConfigManager.h"
 #include "Core/Host.h"
 #include "Core/Movie.h"
+#include "Core/LUA/Lua.h" //Dragonbane
 #include "Core/NetPlayClient.h"
 
 #include "Core/HW/WiimoteEmu/MatrixMath.h"
@@ -735,6 +736,12 @@ void Wiimote::Update()
 					}
 				}
 			}
+		}
+
+		//Dragonbane: Update Lua Scripts when no Movie is currently playing
+		if (!Movie::IsPlayingInput() && rptf.core)
+		{
+			Lua::UpdateScripts(data + rptf.core, true);
 		}
 
 		Movie::CallWiiInputManip(data, rptf, m_index, m_extension->active_extension, m_ext_key);

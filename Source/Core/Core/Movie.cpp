@@ -56,7 +56,9 @@ namespace { Common::Flag pipe_server_running; }
 #define READING_STATE 1 
 #define WRITING_STATE 2 
 #define PIPE_TIMEOUT 5000
-#define BUFSIZE 8192
+#define BUFSIZE 524288
+#define HEAPBUFSIZE 262144
+#define ACTBUFSIZE 8192
 
 HANDLE hEvent;
 HANDLE hPipe;
@@ -73,6 +75,224 @@ DWORD cbToWrite;
 BOOL Pipe_ConnectToNewClient();
 VOID Pipe_DisconnectAndReconnect();
 VOID Pipe_GetResponseToRequest();
+
+//Zelda Heap Helpers
+bool getZeldaResInfo(u8* resListBuffer, DWORD* resListBufferSize) {
+
+	std::string gameID = SConfig::GetInstance().m_LocalCoreStartupParameter.GetUniqueID();
+
+	u16 slotCountMax = 0;
+	u32 startAddress = 0;
+	u16 sizePerSlot = 0;
+	u16 sizePerBufferSlot = 0;
+	u16 sizeName = 0;
+	u16 sizeInstancePadding = 0;
+
+	if (!gameID.compare("GZLJ01")) //TWW JP
+	{
+		slotCountMax = 64;
+		startAddress = 0x3D40BC;
+		sizePerSlot = 36;
+		sizePerBufferSlot = 32;
+
+		sizeName = 14;
+		sizeInstancePadding = 0;
+	}
+	else if (!gameID.compare("GZ2E01")) //TP NTSC
+	{
+		slotCountMax = 128;
+		startAddress = 0x4224B8;
+		sizePerSlot = 36;
+		sizePerBufferSlot = 30;
+
+		sizeName = 12;
+		sizeInstancePadding = 2;
+	}
+	else {
+		return false;
+	}
+
+	memcpy(resListBuffer, &slotCountMax, 2);
+	memcpy(resListBuffer + 2, &sizeName, 2);
+
+	u16 currentSlot = 0;
+
+	while (currentSlot < slotCountMax)
+	{
+		u32 pos = startAddress + (currentSlot * sizePerSlot);
+		u32 actBufPos = (currentSlot * sizePerBufferSlot) + 4;
+
+		std::string name = Memory::Read_String(pos, sizeName);
+		pos += sizeName;
+
+		u16 instanceCount = Memory::Read_U16(pos);
+		pos += 2;
+		pos += sizeInstancePadding;
+
+		u32 commandHeapLoadingPtr = Memory::Read_U32(pos);
+		u32 JKRArchivePtr = Memory::Read_U32(pos + 4);
+		u32 solidHeapPtr = Memory::Read_U32(pos + 12);
+		u32 resourcePtr = Memory::Read_U32(pos + 16);
+
+		memcpy(resListBuffer + actBufPos, name.c_str(), sizeName);
+		actBufPos += sizeName;
+
+		memcpy(resListBuffer + actBufPos, &instanceCount, 2);
+		memcpy(resListBuffer + (actBufPos + 2), &commandHeapLoadingPtr, 4);
+		memcpy(resListBuffer + (actBufPos + 6), &JKRArchivePtr, 4);
+		memcpy(resListBuffer + (actBufPos + 10), &solidHeapPtr, 4);
+		memcpy(resListBuffer + (actBufPos + 14), &resourcePtr, 4);
+
+		currentSlot++;
+	}
+
+	*resListBufferSize = (slotCountMax * sizePerBufferSlot) + 4;
+
+	return true;
+}
+
+void dumpHeapInfo(u32 firstSlotPtr, u32* totalSlotSize, u32* biggestSlotSize, u16* numSlots, bool dumpSlotData, u8* slotBuffer, DWORD* slotBufferSize) {
+
+	//Dump Heap Space
+	firstSlotPtr = Memory::Read_U32(firstSlotPtr);
+
+	u32 startAddress = firstSlotPtr;
+	u32 endAddress = 0;
+
+	firstSlotPtr -= 0x80000000;
+
+	u32 freeSpaceSlot = Memory::Read_U32(firstSlotPtr + 0x4);
+	u32 nextSlotPtr = Memory::Read_U32(firstSlotPtr + 0xC);
+
+	*totalSlotSize = freeSpaceSlot;
+	*biggestSlotSize = *totalSlotSize;
+	*numSlots = 1;
+
+	while (nextSlotPtr > 0x00)
+	{
+		endAddress = nextSlotPtr;
+
+		//Dump slot data if needed
+		if (dumpSlotData) {
+
+			u32 slotBufferPos = (*numSlots - 1) * 12;
+
+			memcpy(slotBuffer + slotBufferPos, &startAddress, 4);
+			memcpy(slotBuffer + slotBufferPos + 4, &endAddress, 4);
+			memcpy(slotBuffer + slotBufferPos + 8, &freeSpaceSlot, 4);
+		}
+
+		startAddress = nextSlotPtr;
+		nextSlotPtr -= 0x80000000;
+
+		*numSlots += 1;
+
+		freeSpaceSlot = Memory::Read_U32(nextSlotPtr + 0x4);
+		nextSlotPtr = Memory::Read_U32(nextSlotPtr + 0xC);
+
+		*totalSlotSize += freeSpaceSlot;
+
+		if (freeSpaceSlot > *biggestSlotSize)
+			*biggestSlotSize = freeSpaceSlot;
+	}
+
+	//Dump last slot if needed
+	if (dumpSlotData) {
+
+		endAddress = startAddress + freeSpaceSlot;
+
+		u32 slotBufferPos = (*numSlots - 1) * 12;
+
+		memcpy(slotBuffer + slotBufferPos, &startAddress, 4);
+		memcpy(slotBuffer + slotBufferPos + 4, &endAddress, 4);
+		memcpy(slotBuffer + slotBufferPos + 8, &freeSpaceSlot, 4);
+
+		*slotBufferSize = *numSlots * 12;
+	}
+}
+
+bool getZeldaHeapInfo(const std::string& heapName, u32* totalSize, u32* totalUsedSize, u32* biggestUsedSlotSize, u32* totalFreeSize, u32* biggestFreeSlotSize, u16* numUsedSlots, u16* numFreeSlots, bool dumpSlotData, u8* usedSlotBuffer, DWORD* usedSlotBufferSize, u8* freeSlotBuffer, DWORD* freeSlotBufferSize) {
+
+	std::string gameID = SConfig::GetInstance().m_LocalCoreStartupParameter.GetUniqueID();
+
+	u32 archiveHeapPtr = 0;
+	u32 archiveHeapSize = 0;
+
+	u32 zeldaHeapPtr = 0;
+	u32 zeldaHeapSize = 0;
+
+	u32 gameHeapPtr = 0;
+	u32 gameHeapSize = 0;
+
+	if (!gameID.compare("GZLJ01")) //TWW JP
+	{
+		archiveHeapPtr = 0x364ADC + 0x4;
+		archiveHeapSize = 0xA3F000;
+
+		zeldaHeapPtr = 0x364A94 + 0x4;
+		zeldaHeapSize = 0x63D580;
+
+		gameHeapPtr = 0x364AB8 + 0x4;
+		gameHeapSize = 0x2CE000;
+	}
+	else if (!gameID.compare("GZ2E01")) //TP NTSC
+	{
+		archiveHeapPtr = 0x3D3380 + 0x8;
+		archiveHeapSize = 0x8DF400;
+
+		zeldaHeapPtr = 0x3D3330 + 0x8;
+		zeldaHeapSize = 0x528A0C;
+
+		gameHeapPtr = 0x3D3358 + 0x8;
+		gameHeapSize = 0x44E000;
+	}
+	else if (!gameID.compare("RZDE01")) //TP Wii NTSC 1.0
+	{
+		archiveHeapPtr = 0x3F57E4 + 0x4;
+		archiveHeapSize = 0xF20C00;
+
+		zeldaHeapPtr = 0x3F579C + 0x4;
+		zeldaHeapSize = 0x8FF76C;
+
+		gameHeapPtr = 0x3F57C0 + 0x4;
+		gameHeapSize = 0x74E000;
+	}
+	else {
+		return false;
+	}
+
+	u32 firstSlotPtr = 0;
+	
+	if (heapName == "Archive") 
+	{
+		firstSlotPtr = Memory::Read_U32(archiveHeapPtr);
+		*totalSize = archiveHeapSize;
+	}
+	else if (heapName == "Zelda")
+	{
+		firstSlotPtr = Memory::Read_U32(zeldaHeapPtr);
+		*totalSize = zeldaHeapSize;
+	}
+	else if (heapName == "Game")
+	{
+		firstSlotPtr = Memory::Read_U32(gameHeapPtr);
+		*totalSize = gameHeapSize;
+	}
+	else
+	{
+		return false;
+	}
+
+	firstSlotPtr -= 0x80000000;
+
+	//Get free/assigned slots
+	dumpHeapInfo(firstSlotPtr + 0x78, totalFreeSize, biggestFreeSlotSize, numFreeSlots, dumpSlotData, freeSlotBuffer, freeSlotBufferSize);
+
+	//Get used slots
+	dumpHeapInfo(firstSlotPtr + 0x80, totalUsedSize, biggestUsedSlotSize, numUsedSlots, dumpSlotData, usedSlotBuffer, usedSlotBufferSize);
+
+	return true;
+}
 
 //Pipe Server Thread
 static void ActorMemoryTransferServerThread()
@@ -379,113 +599,83 @@ VOID Pipe_GetResponseToRequest()
 	//std::string requestString = StringFromFormat("External App Request: %s", request.c_str());
 	//Core::DisplayMessage(requestString, 5000);
 
-	std::string gameID = SConfig::GetInstance().m_LocalCoreStartupParameter.GetUniqueID();
-
 	//Response Codes:
 	//0 = Request was invalid
 	//1 = Wind Waker not running
-	//2 = Sending ACT Space
-	//3 = Sending ACT List
+	//2 = Sending ACT Space (ArchiveHeap)
+	//3 = Sending ACT List (resList)
+	//4 = Sending DYN Space (ZeldaHeap)
+	//5 = Sending GAME Space (GameHeap)
 
-	if (request == "ACT Memory")
+	if (request == "ACT Memory" || request == "DYN Memory" || request == "GAME Memory")
 	{
-		if (gameID.compare("GZLJ01"))
-		{
-			chReply[0] = 0x1; //Wind Waker isnt running
+		u8* actBufUsed = new u8[HEAPBUFSIZE];
+		DWORD actBufUsedSize = 0;
+		memset(actBufUsed, 0, HEAPBUFSIZE);
+
+		u8* actBufFree = new u8[HEAPBUFSIZE];
+		DWORD actBufFreeSize = 0;
+		memset(actBufFree, 0, HEAPBUFSIZE);
+
+		u32 totalSize = 0;
+		u32 totalUsedSize = 0;
+		u32 totalFreeSize = 0;
+		u32 biggestUsedSlotSize = 0;
+		u32 biggestFreeSlotSize = 0;
+		u16 slotCountUsed = 0;
+		u16 slotCountFree = 0;
+
+		std::string targetHeap = "";
+		u8 responseCode = 0;
+
+		if (request == "ACT Memory") {
+			targetHeap = "Archive";
+			responseCode = 0x2;
+		}
+		else if (request == "DYN Memory") {
+			targetHeap = "Zelda";
+			responseCode = 0x4;
+		}
+		else if (request == "GAME Memory") {
+			targetHeap = "Game";
+			responseCode = 0x5;
+		}
+
+		if (getZeldaHeapInfo(targetHeap, &totalSize, &totalUsedSize, &biggestUsedSlotSize, &totalFreeSize, &biggestFreeSlotSize, &slotCountUsed, &slotCountFree, true, actBufUsed, &actBufUsedSize, actBufFree, &actBufFreeSize)) {
+			chReply[0] = responseCode; //ACT or DYN or GAME Memory is being send
+
+			memcpy(chReply + 1, &totalSize, 4); //Write total heap size to stream
+			memcpy(chReply + 5, &slotCountFree, 2); //Write total number of free slots to stream
+			memcpy(chReply + 7, &slotCountUsed, 2); //Write total number of used slots to stream
+			memcpy(chReply + 9, actBufFree, actBufFreeSize); //Copy the free slot address data stream
+			memcpy(chReply + 9 + actBufFreeSize, actBufUsed, actBufUsedSize); //Copy the used slot address data stream
+
+			cbToWrite = actBufFreeSize + actBufUsedSize;
+			cbToWrite += 9;
+		}
+		else {
+			chReply[0] = 0x1; //Game not compatible
 			cbToWrite = 1;
 		}
-		else
-		{
-			chReply[0] = 0x2; //ACT Memory is being send
 
-			u8* actBuf = new u8[BUFSIZE];
-
-			memset(actBuf, 0, BUFSIZE);
-
-			//ACT Space
-			u32 pointerBottom = Memory::Read_U32(0xAE562C);
-			pointerBottom -= 0x80000000;
-
-			u32 startAddress = 0;
-			u32 endAddress = 0;
-
-			u32 freeSpaceSlot = Memory::Read_U32(pointerBottom + 0x4);
-
-			u32 currAddress = Memory::Read_U32(pointerBottom + 0x8);
-			u32 currResult = currAddress;
-			u16 slotCountBottom = 1;
-
-			startAddress = Memory::Read_U32(0xAE562C);
-			endAddress = startAddress + freeSpaceSlot;
-
-			memcpy(actBuf, &startAddress, 4);
-			memcpy(actBuf + 4, &endAddress, 4);
-			memcpy(actBuf + 8, &freeSpaceSlot, 4);
-
-			while (currResult > 0x0)
-			{
-				u32 pos = slotCountBottom * 12;
-
-				++slotCountBottom;
-
-				startAddress = currResult;
-
-				currResult -= 0x80000000;
-				currAddress = currResult;
-				
-				endAddress = Memory::Read_U32(currAddress + 0xC);
-
-				freeSpaceSlot = Memory::Read_U32(currAddress + 0x4);
-
-				memcpy(actBuf + pos, &startAddress, 4);
-				memcpy(actBuf + (pos + 4), &endAddress, 4);
-				memcpy(actBuf + (pos + 8), &freeSpaceSlot, 4);
-
-				currResult = Memory::Read_U32(currAddress + 0x8);
-			}
-
-			memcpy(chReply + 1, &slotCountBottom, 2); //Write total number of slots to stream
-			memcpy(chReply + 3, actBuf, slotCountBottom * 12); //Write the slot address data stream
-
-			cbToWrite = (slotCountBottom * 12) + 3;
-		}
+		delete actBufUsed;
+		delete actBufFree;
 	}
 	else if (request == "ACT List") {
-		chReply[0] = 0x3; //ACT List is being send
+		u8* actBuf = new u8[ACTBUFSIZE];
+		memset(actBuf, 0, ACTBUFSIZE);
 
-		u8* actBuf = new u8[BUFSIZE];
-		memset(actBuf, 0, BUFSIZE);
-
-		u16 slotCountMax = 64;
-		u16 currentSlot = 0;
-
-		u32 startAddress = 0x3D40BC;
-
-		while (currentSlot < slotCountMax)
-		{
-			u32 pos = startAddress + (currentSlot * 36);
-			u32 actBufPos = currentSlot * 32;
-
-			std::string name = Memory::Read_String(pos, 14);
-			u16 instanceCount = Memory::Read_U16(pos + 14);
-			u32 loadingPtr = Memory::Read_U32(pos + 16);
-			u32 instancePtr = Memory::Read_U32(pos + 20);
-			u32 dataPtr = Memory::Read_U32(pos + 28);
-			u32 data2Ptr = Memory::Read_U32(pos + 32);
-
-			memcpy(actBuf + actBufPos, name.c_str(), 14);
-			memcpy(actBuf + (actBufPos + 14), &instanceCount, 2);
-			memcpy(actBuf + (actBufPos + 16), &loadingPtr, 4);
-			memcpy(actBuf + (actBufPos + 20), &instancePtr, 4);
-			memcpy(actBuf + (actBufPos + 24), &dataPtr, 4);
-			memcpy(actBuf + (actBufPos + 28), &data2Ptr, 4);
-
-			currentSlot++;
+		if (getZeldaResInfo(actBuf, &cbToWrite)) {
+			chReply[0] = 0x3; //ACT List is being send
+			memcpy(chReply + 1, actBuf, cbToWrite); //Copy the res data stream
+			cbToWrite += 1;
+		}
+		else {
+			chReply[0] = 0x1; //Game not compatible
+			cbToWrite = 1;
 		}
 
-		memcpy(chReply + 1, actBuf, slotCountMax * 32); //Write the slot address data stream
-
-		cbToWrite = (slotCountMax * 32) + 1;
+		free(actBuf);
 	}
 	else //Invalid Request
 	{
@@ -493,7 +683,6 @@ VOID Pipe_GetResponseToRequest()
 		cbToWrite = 1;
 	}
 }
-
 
 
 namespace Movie {
@@ -905,211 +1094,143 @@ std::string GetInputDisplay()
 
 	}
 
-	//TWW Song Stone Debug
-	if (!gameID.compare("GZLJ01"))
+	//Zelda Heap Display for TWW JP and TP NTSC and TP Wii NTSC 1.0
+	if (!gameID.compare("GZLJ01") || !gameID.compare("GZ2E01") || !gameID.compare("RZDE01"))
 	{
 		inputDisplay.append("\n");
 
-		//Top Backup List
+		//DYN List
+		u32 spaceTopTotal = 0;
+		u32 spaceTopUsed = 0;
+		u32 biggestSlotUsedTop = 0;
+		u32 spaceTopFree = 0;
+		u32 biggestSlotFreeTop = 0;
+		u16 slotCountFreeTop = 0;
+		u16 slotCountUsedTop = 0;
 
-		/*
-		u32 pointerTop = Memory::Read_U32(0x497088);
-		pointerTop -= 0x80000000;
+		getZeldaHeapInfo("Zelda", &spaceTopTotal, &spaceTopUsed, &biggestSlotUsedTop, &spaceTopFree, &biggestSlotFreeTop, &slotCountUsedTop, &slotCountFreeTop, false, nullptr, nullptr, nullptr, nullptr);
 
-		u32 sizeTop = Memory::Read_U32(pointerTop + 0x4);
-
-		if (sizeTop == 0 || sizeTop < 0xFF)
-		{
-		u32 add = Memory::Read_U32(pointerTop + 0xC);
-		add -= 0x80000000;
-
-		sizeTop = Memory::Read_U32(add + 0x4);
-		}
-		*/
-
-		u32 pointerTop = Memory::Read_U32(0x497088);
-		pointerTop -= 0x80000000;
-
-		u32 freeSpaceTopTotal = 0;
-		u32 biggestSlotTop = 0;
-		u32 slotCountTop = 1;
-
-		u32 currResult = Memory::Read_U32(pointerTop + 0xC);
-		u32 currAddress = currResult;
-
-		if (Memory::Read_U8(pointerTop + 0xC) >= 0x80)
-		{
-			freeSpaceTopTotal = Memory::Read_U32(pointerTop + 0x4);
-			biggestSlotTop = freeSpaceTopTotal;
-
-			while (currResult > 0x0)
-			{
-				++slotCountTop;
-
-				currResult -= 0x80000000;
-				currAddress = currResult;
-
-				if (Memory::Read_U8(currAddress + 0xC) < 0x80 && Memory::Read_U8(currAddress + 0xC) > 0x0)
-					break;
-
-				currResult = Memory::Read_U32(currAddress + 0xC);
-
-				u32 spaceSize = Memory::Read_U32(currAddress + 0x4);
-
-				if (spaceSize > 0)
-				{
-					freeSpaceTopTotal += spaceSize;
-
-					if (spaceSize > biggestSlotTop)
-						biggestSlotTop = spaceSize;
-				}
-			}
-		}
-		else if (Memory::Read_U8(pointerTop + 0xC) == 0x0)
-		{
-			freeSpaceTopTotal = Memory::Read_U32(pointerTop + 0x4);
-			biggestSlotTop = freeSpaceTopTotal;
-		}
-
-		freeSpaceTopTotal /= 1000;
-		biggestSlotTop /= 1000;
-
-		std::string sizeTopString = StringFromFormat("[DYN] Max alloc: %d KB | Free total: %d KB | Nodes: %d\n", biggestSlotTop, freeSpaceTopTotal, slotCountTop);
+		std::string sizeTopString = StringFromFormat("[DYN] Max alloc: %.2f KB | Free: %.2f KB / %.2f KB | Free Slots: %d\n", (float)biggestSlotFreeTop / 1000, (float)spaceTopFree / 1000, (float)spaceTopTotal / 1000, slotCountFreeTop);
 		inputDisplay.append(sizeTopString);
 
-		//std::string sizeTopString2 = StringFromFormat("Add1: %X\n", currAddress);
-		//inputDisplay.append(sizeTopString2);
+		//ACT List
+		u32 spaceBottomTotal = 0;
+		u32 spaceBottomUsed = 0;
+		u32 biggestSlotUsedBottom = 0;
+		u32 spaceBottomFree = 0;
+		u32 biggestSlotFreeBottom = 0;
+		u16 slotCountFreeBottom = 0;
+		u16 slotCountUsedBottom = 0;
 
+		getZeldaHeapInfo("Archive", &spaceBottomTotal, &spaceBottomUsed, &biggestSlotUsedBottom, &spaceBottomFree, &biggestSlotFreeBottom, &slotCountUsedBottom, &slotCountFreeBottom, false, nullptr, nullptr, nullptr, nullptr);
 
-		//Bottom Main List
-		u32 pointerBottom = Memory::Read_U32(0xAE562C);
-		pointerBottom -= 0x80000000;
-
-		u32 freeSpaceBottomTotal = Memory::Read_U32(pointerBottom + 0x4);
-		u32 biggestSlotBottom = freeSpaceBottomTotal;
-
-		currAddress = Memory::Read_U32(pointerBottom + 0x8);
-		currResult = currAddress;
-		u32 slotCountBottom = 1;
-
-		while (currResult > 0x0)
-		{
-			++slotCountBottom;
-
-			currResult -= 0x80000000;
-			currAddress = currResult;
-
-			u32 spaceSize = Memory::Read_U32(currAddress + 0x4);
-
-			if (spaceSize > 0)
-			{
-				freeSpaceBottomTotal += spaceSize;
-
-				if (spaceSize > biggestSlotBottom)
-					biggestSlotBottom = spaceSize;
-			}
-
-			currResult = Memory::Read_U32(currAddress + 0x8);
-		}
-
-		freeSpaceBottomTotal /= 1000;
-		biggestSlotBottom /= 1000;
-
-		std::string sizeButtomString = StringFromFormat("[ACT] Max alloc: %d KB | Free total: %d KB | Nodes: %d\n", biggestSlotBottom, freeSpaceBottomTotal, slotCountBottom);
-
+		std::string sizeButtomString = StringFromFormat("[ACT] Max alloc: %.2f KB | Free: %.2f KB / %.2f KB | Free Slots: %d\n", (float)biggestSlotFreeBottom / 1000, (float)spaceBottomFree / 1000, (float)spaceBottomTotal / 1000, slotCountFreeBottom);
 		inputDisplay.append(sizeButtomString);
 
-		//std::string sizeTopString3 = StringFromFormat("Add2: %X\n", currAddress);
-		//inputDisplay.append(sizeTopString3);
+		//GAME List
+		u32 spaceGameTotal = 0;
+		u32 spaceGameUsed = 0;
+		u32 biggestSlotUsedGame = 0;
+		u32 spaceGameFree = 0;
+		u32 biggestSlotFreeGame = 0;
+		u16 slotCountFreeGame = 0;
+		u16 slotCountUsedGame = 0;
 
+		getZeldaHeapInfo("Game", &spaceGameTotal, &spaceGameUsed, &biggestSlotUsedGame, &spaceGameFree, &biggestSlotFreeGame, &slotCountUsedGame, &slotCountFreeGame, false, nullptr, nullptr, nullptr, nullptr);
 
-		//Error text
-		int num = 0;
-		while (num < 60)
+		std::string sizeGameString = StringFromFormat("[GAME] Max alloc: %.2f KB | Free: %.2f KB / %.2f KB | Used Slots: %d\n", (float)biggestSlotFreeGame / 1000, (float)spaceGameFree / 1000, (float)spaceGameTotal / 1000, slotCountUsedGame);
+		inputDisplay.append(sizeGameString);
+
+		//Error text (TWW only)
+		if (!gameID.compare("GZLJ01"))
 		{
-			u8 var = Memory::Read_U8(0x3E51E0 + num);
-
-			if (var == 0x0D)
-				break;
-
-			++num;
-		}
-
-		std::string errText = Memory::Read_String(0x3E51E0, num);
-
-		inputDisplay.append("[LOG] ");
-
-		if (errText.find("mmDoDvdThd_mountArchive_c::execute", 0) != std::string::npos)
-		{
-			errText = "Alloc error for object!";
-
-			if (Memory::Read_U8(0x3BD3A2) == 0x0) //Event State = 0
+			int num = 0;
+			while (num < 60)
 			{
-				Memory::Write_String("Dynamic space was used successfully to recover!", 0x3E51E0);
-				Memory::Write_U8(0x0D, 0x3E520F);
-			}
-		}
+				u8 var = Memory::Read_U8(0x3E51E0 + num);
 
-		inputDisplay.append(errText);
+				if (var == 0x0D)
+					break;
 
-		if (errText.find("mount error", 0) != std::string::npos)
-		{
-			std::string archiveName = errText.substr(errText.find("<", 0) + 1);
-
-			archiveName = archiveName.substr(0, archiveName.find(">", 0));
-
-			//Check size of object
-			std::string fullPath = StringFromFormat("res/Object/%s", archiveName.c_str());
-			std::string ISOPath = SConfig::GetInstance().m_LocalCoreStartupParameter.m_strFilename;
-
-			static DiscIO::IVolume *OpenISO = nullptr;
-			static DiscIO::IFileSystem *pFileSystem = nullptr;
-
-			OpenISO = DiscIO::CreateVolumeFromFilename(ISOPath);
-			pFileSystem = DiscIO::CreateFileSystem(OpenISO);
-
-			u64 fileSize = pFileSystem->GetFileSize(fullPath);
-
-			//Limit read size to 128 MB
-			size_t readSize = (size_t)std::min(fileSize, (u64)0x08000000);
-
-			std::vector<u8> inputBuffer(readSize);
-
-			pFileSystem->ReadFile(fullPath, &inputBuffer[0], readSize);
-
-			delete pFileSystem;
-			delete OpenISO;
-
-			std::string index = "";
-
-			for (int i = 0; i < 4; i++)
-			{
-				int address = i;
-				std::string result;
-
-				u8 var = inputBuffer[address];
-
-				result = var;
-
-				index.append(result);
+				++num;
 			}
 
-			u32 outputSize;
+			std::string errText = Memory::Read_String(0x3E51E0, num);
 
-			if (!index.compare("Yaz0"))
+			inputDisplay.append("[LOG] ");
+
+			if (errText.find("mmDoDvdThd_mountArchive_c::execute", 0) != std::string::npos)
 			{
-				outputSize = (u32)((inputBuffer[4] << 24) | (inputBuffer[5] << 16) | (inputBuffer[6] << 8) | inputBuffer[7]);
+				errText = "Alloc error for object!";
+
+				if (Memory::Read_U8(0x3BD3A2) == 0x0) //Event State = 0
+				{
+					Memory::Write_String("Dynamic space was used successfully to recover!", 0x3E51E0);
+					Memory::Write_U8(0x0D, 0x3E520F);
+				}
 			}
-			else
+
+			inputDisplay.append(errText);
+
+			if (errText.find("mount error", 0) != std::string::npos)
 			{
-				outputSize = readSize;
+				std::string archiveName = errText.substr(errText.find("<", 0) + 1);
+
+				archiveName = archiveName.substr(0, archiveName.find(">", 0));
+
+				//Check size of object
+				std::string fullPath = StringFromFormat("res/Object/%s", archiveName.c_str());
+				std::string ISOPath = SConfig::GetInstance().m_LocalCoreStartupParameter.m_strFilename;
+
+				static DiscIO::IVolume *OpenISO = nullptr;
+				static DiscIO::IFileSystem *pFileSystem = nullptr;
+
+				OpenISO = DiscIO::CreateVolumeFromFilename(ISOPath);
+				pFileSystem = DiscIO::CreateFileSystem(OpenISO);
+
+				u64 fileSize = pFileSystem->GetFileSize(fullPath);
+
+				//Limit read size to 128 MB
+				size_t readSize = (size_t)std::min(fileSize, (u64)0x08000000);
+
+				std::vector<u8> inputBuffer(readSize);
+
+				pFileSystem->ReadFile(fullPath, &inputBuffer[0], readSize);
+
+				delete pFileSystem;
+				delete OpenISO;
+
+				std::string index = "";
+
+				for (int i = 0; i < 4; i++)
+				{
+					int address = i;
+					std::string result;
+
+					u8 var = inputBuffer[address];
+
+					result = var;
+
+					index.append(result);
+				}
+
+				u32 outputSize;
+
+				if (!index.compare("Yaz0"))
+				{
+					outputSize = (u32)((inputBuffer[4] << 24) | (inputBuffer[5] << 16) | (inputBuffer[6] << 8) | inputBuffer[7]);
+				}
+				else
+				{
+					outputSize = readSize;
+				}
+
+				outputSize /= 1000;
+
+				std::string sizeString = StringFromFormat(" (failed to allocate %d KB)", outputSize);
+
+				inputDisplay.append(sizeString);
 			}
-
-			outputSize /= 1000;
-
-			std::string sizeString = StringFromFormat(" (failed to allocate %d KB)", outputSize);
-
-			inputDisplay.append(sizeString);
 		}
 
 		inputDisplay.append("\n");
